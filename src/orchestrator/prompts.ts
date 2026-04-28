@@ -3,7 +3,8 @@ import { renderTestCase } from './testCase.js';
 import type { Classification } from '../failure/rules.js';
 import type { NormalizedFailure } from '../tools/exec/parseReport.js';
 
-const GENERATE_SYSTEM = `You are a QA automation agent in the GENERATE phase.
+function buildGenerateSystem(locales: string[]): string {
+  return `You are a QA automation agent in the GENERATE phase.
 
 Your job: translate a structured test case into a Playwright test that ACTUALLY exercises the assertion described in 'Expected'.
 
@@ -23,8 +24,8 @@ The following tools may also be available depending on configuration:
 ## Framework structure
 
 Page objects live in two tiers:
-  - src/pages/common/<Page>.ts   — default implementation used by all locales
-  - src/pages/locales/<locale>/<Page>.ts — locale-specific subclass that overrides only what differs
+  - src/pages/common/<Page>.ts              — default implementation used by all locales
+  - src/pages/locales/<locale>/<Page>.ts    — locale-specific subclass, overrides only what differs
 
 When reading a POM, always check common/ first, then check locales/<locale>/ for an override.
 The override extends the common class and only redefines what differs — the rest is inherited.
@@ -36,8 +37,31 @@ Fixtures (always import tests from here, never directly from @playwright/test):
   - testData   (function, test-scoped) — call testData<User>('users') to get the next unused user for this worker
 
 Test locations:
-  - tests/generic/         — runs for every locale; use appLocale/testData for locale-aware behaviour
+  - tests/generic/          — runs for every locale; use appLocale/testData for locale-aware behaviour
   - tests/locales/<locale>/ — runs only for that locale; add test.describe.configure({ mode: 'serial' }) at the top
+
+## Configured locales
+
+The target repo is configured for these locales: ${locales.join(', ')}
+
+Each locale may have POM overrides under src/pages/locales/<locale>/.
+A locale-specific spec file belongs in tests/locales/<locale>/.
+
+## Locale scope rules
+
+The test case carries a 'Locale scope' field:
+
+  generic       → Write the test to tests/generic/.
+                  After writing it, check each configured locale for POM overrides of the POMs
+                  the test uses. If a locale has overrides that change selectors or behaviour
+                  relevant to this test, scaffold a companion spec in tests/locales/<locale>/
+                  that exercises the locale-specific variation. Add test.describe.configure({ mode: 'serial' })
+                  at the top of every locale-specific spec.
+
+  <locale>      → Write the test directly to tests/locales/<locale>/.
+                  Read src/pages/locales/<locale>/<Page>.ts for every POM the test uses.
+                  Use the override's field/method names where they differ from common/.
+                  Add test.describe.configure({ mode: 'serial' }) at the top of the spec.
 
 ## Rules
 
@@ -48,11 +72,13 @@ Test locations:
   - If a POM is missing a method you need, extend it via pom.editMethod. Do NOT inline raw selectors in the spec when a POM exists.
   - If browse.* tools are present and you cannot tell whether a POM selector is correct, use browse.navigate to the app's base URL and browse.snapshot to confirm the element exists before writing the test. If the selector is wrong, use pom.updateSelector to fix it BEFORE generating the test.
   - Always ensure imports exist via ast.addImport before referencing a symbol.
-  - Stop as soon as the test is written. DO NOT run the test — execution happens outside this phase.
+  - Stop as soon as all required spec files are written. DO NOT run the test — execution happens outside this phase.
 
 Output: after your last tool call, produce no further tool calls. The orchestrator takes over.`;
+}
 
-const FIX_SYSTEM = `You are a QA automation agent in the FIX phase.
+function buildFixSystem(locales: string[]): string {
+  return `You are a QA automation agent in the FIX phase.
 
 A test you wrote (or an existing one) just failed. A rule-based classifier has identified the cause and suggested an action. Your job: apply the minimal fix.
 
@@ -71,8 +97,12 @@ The following tools may also be available depending on configuration:
 ## Framework structure
 
 Page objects live in two tiers:
-  - src/pages/common/<Page>.ts         — default for all locales
-  - src/pages/locales/<locale>/<Page>.ts — locale-specific override; extends the common class
+  - src/pages/common/<Page>.ts              — default for all locales
+  - src/pages/locales/<locale>/<Page>.ts    — locale-specific override; extends the common class
+
+## Configured locales
+
+The target repo is configured for these locales: ${locales.join(', ')}
 
 When fixing a selector or method:
   - If the failing file is under src/pages/locales/<locale>/, fix it there — the fix is locale-specific.
@@ -80,6 +110,8 @@ When fixing a selector or method:
     or only to one. If it applies to all, fix common/. If it applies only to one locale, create or
     update the locale-specific override in src/pages/locales/<locale>/ rather than changing common/
     in a way that would break other locales.
+  - If a generic test fails only for one locale (the failing file path or test title hints at the locale),
+    do NOT change common/. Instead, create or update src/pages/locales/<locale>/<Page>.ts.
 
 ## Rules
 
@@ -93,17 +125,45 @@ When fixing a selector or method:
   - Make the smallest correct change. Do not refactor unrelated code.
 
 Stop as soon as the fix is applied. DO NOT re-run tests — execution happens outside this phase.`;
-
-export function generateSystemPrompt(): string {
-  return GENERATE_SYSTEM;
 }
 
-export function fixSystemPrompt(): string {
-  return FIX_SYSTEM;
+export function generateSystemPrompt(locales: string[]): string {
+  return buildGenerateSystem(locales);
 }
 
-export function generateTask(tc: TestCase, defaultSpecFile: string): string {
-  const specFile = tc.specFile ?? defaultSpecFile;
+export function fixSystemPrompt(locales: string[]): string {
+  return buildFixSystem(locales);
+}
+
+export function generateTask(tc: TestCase, defaultSpecFile: string, locales: string[]): string {
+  const isGeneric = tc.localeScope === 'generic';
+  const targetLocale = isGeneric ? null : tc.localeScope;
+  const specFile = tc.specFile ?? (
+    targetLocale
+      ? `tests/locales/${targetLocale}/agent-generated.spec.ts`
+      : defaultSpecFile
+  );
+
+  const companionStep = isGeneric
+    ? [
+        `  8. Companion locale specs (generic tests only):`,
+        `     After the generic test is written, check each configured locale for POM overrides`,
+        `     of the POMs used in this test. Configured locales: ${locales.join(', ')}.`,
+        `     For each locale:`,
+        `       a. fs.read src/pages/locales/<locale>/<Page>.ts for every POM the test references.`,
+        `       b. If the override changes selectors or methods that this test exercises,`,
+        `          scaffold a companion spec at tests/locales/<locale>/<same-filename> using`,
+        `          test.createSpec, add test.describe.configure({ mode: 'serial' }) at the top,`,
+        `          then use test.addCase to write a test that targets the locale-specific behaviour.`,
+        `          Import { test, expect } from src/fixtures/pages.fixture.ts as usual.`,
+        `       c. If the locale has no POM override file or the override doesn't affect this test,`,
+        `          skip — no companion needed.`,
+        `  9. Stop.`,
+      ]
+    : [
+        `  8. Stop.`,
+      ];
+
   return [
     'Create a Playwright test for the following test case.',
     '',
@@ -113,18 +173,21 @@ export function generateTask(tc: TestCase, defaultSpecFile: string): string {
     '',
     'Steps:',
     '  1. fs.read the target spec file (if it exists) to understand existing conventions.',
-    '  2. Determine the locale this test targets from the spec file path:',
-    '       tests/generic/          → locale-agnostic; page objects come from common/ (or locale override at runtime via fixture)',
-    '       tests/locales/<locale>/ → locale-specific; also read src/pages/locales/<locale>/ for overrides',
+    isGeneric
+      ? '  2. Locale scope is GENERIC — the test runs for every locale.'
+      : `  2. Locale scope is ${targetLocale} — the test runs only for that locale.`,
     '  3. fs.read the POM(s) the Expected outcome references:',
     '       a. Read src/pages/common/<Page>.ts first — this is the base implementation.',
-    '       b. If a locale-specific override exists at src/pages/locales/<locale>/<Page>.ts, read that too.',
-    '          The override takes precedence for that locale — use its field/method names where they differ.',
+    targetLocale
+      ? `       b. Read src/pages/locales/${targetLocale}/<Page>.ts — use its field/method names where they differ from common/.`
+      : '       b. For generic tests the fixture picks the right class at runtime — read common/ for field names.',
     '  4. If browse.* tools are available AND you are unsure whether a POM selector is correct,',
     '     use browse.navigate + browse.snapshot to inspect the live app,',
     '     and pom.updateSelector to fix the POM if needed.',
     '  5. Use test.createSpec if the spec file does not yet exist.',
-    '     For locale-specific specs, add test.describe.configure({ mode: \'serial\' }) at the top.',
+    targetLocale
+      ? '     Add test.describe.configure({ mode: \'serial\' }) at the top — locale-specific specs always run serially.'
+      : '     Generic specs do not need mode: serial.',
     '  6. Use ast.addImport to add needed imports.',
     '     ALWAYS import { test, expect } from src/fixtures/pages.fixture.ts — never from @playwright/test.',
     '  7. Use test.addCase to insert the test.',
@@ -133,7 +196,7 @@ export function generateTask(tc: TestCase, defaultSpecFile: string): string {
     '     checkoutPage), destructure it from the test args instead — do not instantiate it manually.',
     '     Then `await <varname>.goto();` and ONLY then exercise the Expected assertion using POM fields.',
     '     Tests without page-object instantiation or fixture destructuring will throw ReferenceError — DO NOT emit them.',
-    '  8. Stop.',
+    ...companionStep,
   ].join('\n');
 }
 

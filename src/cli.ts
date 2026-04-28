@@ -210,7 +210,8 @@ async function runQa(args: QaArgs): Promise<void> {
       maxAttempts: cfg.maxSteps,       // reusing maxSteps as the attempt budget for now
       maxTokens: cfg.maxTokens,
       model: cfg.model,
-      defaultSpecFile: 'tests/agent-generated.spec.ts',
+      defaultSpecFile: 'tests/generic/agent-generated.spec.ts',
+      locales: cfg.locales,
       validation: { command: cfg.validation.command, cwd: cfg.validation.cwd },
       browse: cfg.browse,
     },

@@ -37,6 +37,7 @@ export interface OrchestratorConfig {
   maxTokens: number;
   model: string;
   defaultSpecFile: string;              // relative to paths.tests
+  locales: string[];                    // active locales; drives locale-aware prompt context
   validation: { command: string; cwd?: string };
   // Optional: enables Playwright MCP discovery during generate/fix phases.
   // Presence of this block triggers MCP server startup.
@@ -179,12 +180,12 @@ async function runOrchestratorCore(
 
   try {
     await runAgent(
-      generateTask(tc, cfg.defaultSpecFile),
+      generateTask(tc, cfg.defaultSpecFile, cfg.locales),
       {
         maxSteps: 20,           // per-phase step cap; distinct from orchestrator maxAttempts
         model: cfg.model,
         maxTokens: cfg.maxTokens,
-        system: generateSystemPrompt(),
+        system: generateSystemPrompt(cfg.locales),
       },
       {
         llm,
@@ -354,7 +355,7 @@ async function runOrchestratorCore(
           maxSteps: 10,
           model: cfg.model,
           maxTokens: cfg.maxTokens,
-          system: fixSystemPrompt(),
+          system: fixSystemPrompt(cfg.locales),
         },
         {
           llm,

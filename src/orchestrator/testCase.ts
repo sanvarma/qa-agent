@@ -10,6 +10,15 @@ export const TestCaseSchema = z.object({
     .describe('Path under paths.tests. Defaults to tests/agent-generated.spec.ts'),
   steps: z.array(z.string().min(1)).min(1).describe('Human-readable steps'),
   expected: z.string().min(1).describe('Expected outcome'),
+  // 'generic'       → test goes in tests/generic/; runs for every locale.
+  //                   Agent will also check each configured locale for POM overrides
+  //                   and scaffold a companion tests/locales/<locale>/ spec if needed.
+  // '<locale>'      → test goes in tests/locales/<locale>/; runs for that locale only.
+  //                   Agent reads locale POM overrides and adds mode: serial.
+  localeScope: z
+    .string()
+    .default('generic')
+    .describe("'generic' for all-locale tests, or a locale code (e.g. 'es-pr') for locale-specific tests"),
 });
 
 export type TestCase = z.infer<typeof TestCaseSchema>;
@@ -38,6 +47,7 @@ export function renderTestCase(tc: TestCase): string {
   lines.push(`Title: ${tc.title}`);
   if (tc.describe) lines.push(`Describe: ${tc.describe}`);
   if (tc.specFile) lines.push(`Spec file: ${tc.specFile}`);
+  lines.push(`Locale scope: ${tc.localeScope}`);
   lines.push('Steps:');
   tc.steps.forEach((s, i) => lines.push(`  ${i + 1}. ${s}`));
   lines.push(`Expected: ${tc.expected}`);

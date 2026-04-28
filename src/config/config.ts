@@ -13,6 +13,9 @@ export const ConfigSchema = z.object({
       cwd: z.string().optional(),
     })
     .default({ command: 'npx playwright test --reporter=json' }),
+  // Active locales in the target repo. Drives which locale-specific POM and
+  // test directories the agent is aware of during generation.
+  locales: z.array(z.string()).min(1).default(['en-gb']),
   // Target-repo layout. Config-driven so we can swap frameworks later
   // without moving files. All paths are relative to repoRoot.
   // Mutating tools will enforce write scope against these.
