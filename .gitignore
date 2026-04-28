@@ -1,0 +1,14 @@
+node_modules/
+dist/
+
+# Agent run logs written by ConversationLog
+runs/
+
+# Test output
+test-results/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
