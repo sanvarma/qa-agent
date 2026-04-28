@@ -1,0 +1,162 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "qa: get-started-link (happy path)",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "tsx",
+        "src/cli.ts",
+        "qa",
+        "--testcase",
+        "${workspaceFolder}/cases/get-started-link.json",
+        "--repo",
+        "${workspaceFolder}/../my-framework",
+        "--llm",
+        "scripted"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "qa: get-started-link (Ollama)",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "tsx",
+        "src/cli.ts",
+        "qa",
+        "--testcase",
+        "${workspaceFolder}/cases/get-started-link.json",
+        "--repo",
+        "${workspaceFolder}/../my-framework",
+        "--llm",
+        "ollama",
+        "--ollama-url",
+        "https://ope8kdv6ujesak-11434.proxy.runpod.net"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "qa: hero-banner (Ollama, exercises fix loop)",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "tsx",
+        "src/cli.ts",
+        "qa",
+        "--testcase",
+        "${workspaceFolder}/cases/hero-banner.json",
+        "--repo",
+        "${workspaceFolder}/../my-framework",
+        "--llm",
+        "ollama",
+        "--ollama-url",
+        "https://ope8kdv6ujesak-11434.proxy.runpod.net"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "qa: hero-banner (selector fix path)",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "tsx",
+        "src/cli.ts",
+        "qa",
+        "--testcase",
+        "${workspaceFolder}/cases/hero-banner.json",
+        "--repo",
+        "${workspaceFolder}/../my-framework",
+        "--llm",
+        "scripted"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "qa: navigate-to-docs",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "tsx",
+        "src/cli.ts",
+        "qa",
+        "--testcase",
+        "${workspaceFolder}/cases/navigate-to-docs.json",
+        "--repo",
+        "${workspaceFolder}/../my-framework",
+        "--llm",
+        "scripted"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "qa: search-box (selector fix path)",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "tsx",
+        "src/cli.ts",
+        "qa",
+        "--testcase",
+        "${workspaceFolder}/cases/search-box.json",
+        "--repo",
+        "${workspaceFolder}/../my-framework",
+        "--llm",
+        "scripted"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "run: inspect my-framework (generic loop)",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "tsx",
+        "src/cli.ts",
+        "run",
+        "--task",
+        "Read src/pages/loginPage.ts and list its selectors",
+        "--repo",
+        "${workspaceFolder}/../my-framework",
+        "--llm",
+        "mock"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "qa-agent: unit tests",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "tsx",
+        "test/run.ts"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ]
+}

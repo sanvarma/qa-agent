@@ -1,0 +1,11 @@
+{
+  "title": "search box is visible on docs page",
+  "steps": [
+    "Navigate to /",
+    "Click the Get Started link",
+    "Assert the search box is visible"
+  ],
+  "expected": "LoginPage.searchBox is visible on the docs page",
+  "specFile": "src/tests/login.spec.ts",
+  "notes": "searchBox selector in LoginPage is intentionally broken — second selector-fix scenario."
+}

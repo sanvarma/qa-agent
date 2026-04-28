@@ -1,0 +1,10 @@
+{
+  "title": "clicking get started navigates to docs",
+  "steps": [
+    "Navigate to /",
+    "Click the Get Started link",
+    "Assert the URL contains /docs"
+  ],
+  "expected": "After clicking Get Started, the URL should contain '/docs/intro'",
+  "specFile": "src/tests/login.spec.ts"
+}
