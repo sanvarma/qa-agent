@@ -4,7 +4,7 @@ import type { Classification } from '../failure/rules.js';
 import type { NormalizedFailure } from '../tools/exec/parseReport.js';
 import type { FixAttempt } from './state.js';
 
-function buildGenerateSystem(locales: string[]): string {
+function buildGenerateSystem(): string {
   return `You are a QA automation agent in the GENERATE phase.
 
 Your job: translate a structured test case into a Playwright test that ACTUALLY exercises the assertion described in 'Expected'.
@@ -41,12 +41,11 @@ Test locations:
   - tests/generic/          — runs for every locale; use appLocale/testData for locale-aware behaviour
   - tests/locales/<locale>/ — runs only for that locale; add test.describe.configure({ mode: 'serial' }) at the top
 
-## Configured locales
+## Locale overrides
 
-The target repo is configured for these locales: ${locales.join(', ')}
-
-Each locale may have POM overrides under src/pages/locales/<locale>/.
-A locale-specific spec file belongs in tests/locales/<locale>/.
+Any locale-specific POM overrides live under src/pages/locales/<locale>/.
+Any locale-specific spec files belong in tests/locales/<locale>/.
+Use fs.read to discover which locales have override folders when needed.
 
 ## Locale scope rules
 
@@ -78,7 +77,7 @@ The test case carries a 'Locale scope' field:
 Output: after your last tool call, produce no further tool calls. The orchestrator takes over.`;
 }
 
-function buildFixSystem(locales: string[]): string {
+function buildFixSystem(): string {
   return `You are a QA automation agent in the FIX phase.
 
 A test you wrote (or an existing one) just failed. A rule-based classifier has identified the cause and suggested an action. Your job: apply the minimal fix.
@@ -100,10 +99,6 @@ The following tools may also be available depending on configuration:
 Page objects live in two tiers:
   - src/pages/common/<Page>.ts              — default for all locales
   - src/pages/locales/<locale>/<Page>.ts    — locale-specific override; extends the common class
-
-## Configured locales
-
-The target repo is configured for these locales: ${locales.join(', ')}
 
 When fixing a selector or method:
   - If the failing file is under src/pages/locales/<locale>/, fix it there — the fix is locale-specific.
@@ -128,17 +123,25 @@ When fixing a selector or method:
 Stop as soon as the fix is applied. DO NOT re-run tests — execution happens outside this phase.`;
 }
 
-export function generateSystemPrompt(locales: string[]): string {
-  return buildGenerateSystem(locales);
+export function generateSystemPrompt(): string {
+  return buildGenerateSystem();
 }
 
-export function fixSystemPrompt(locales: string[]): string {
-  return buildFixSystem(locales);
+export function fixSystemPrompt(): string {
+  return buildFixSystem();
 }
 
-export function generateTask(tc: TestCase, defaultSpecFile: string, locales: string[]): string {
-  const isGeneric = tc.localeScope === 'generic';
-  const targetLocale = isGeneric ? null : tc.localeScope;
+// Resolve the effective single locale from localeScope.
+// Used for spec file path and prompt context — not for browse URL (see browseUrl.ts).
+function resolveTargetLocale(localeScope: string | string[]): string | null {
+  if (localeScope === 'generic' || localeScope === 'global') return null;
+  if (Array.isArray(localeScope)) return localeScope.length > 0 ? localeScope[0] : null;
+  return localeScope;
+}
+
+export function generateTask(tc: TestCase, defaultSpecFile: string): string {
+  const targetLocale = resolveTargetLocale(tc.localeScope ?? 'generic');
+  const isGeneric = targetLocale === null;
   const specFile = tc.specFile ?? (
     targetLocale
       ? `tests/locales/${targetLocale}/agent-generated.spec.ts`
@@ -148,17 +151,15 @@ export function generateTask(tc: TestCase, defaultSpecFile: string, locales: str
   const companionStep = isGeneric
     ? [
         `  8. Companion locale specs (generic tests only):`,
-        `     After the generic test is written, check each configured locale for POM overrides`,
-        `     of the POMs used in this test. Configured locales: ${locales.join(', ')}.`,
-        `     For each locale:`,
+        `     After the generic test is written, check src/pages/locales/ for any locale override folders.`,
+        `     For each locale folder found:`,
         `       a. fs.read src/pages/locales/<locale>/<Page>.ts for every POM the test references.`,
         `       b. If the override changes selectors or methods that this test exercises,`,
         `          scaffold a companion spec at tests/locales/<locale>/<same-filename> using`,
         `          test.createSpec, add test.describe.configure({ mode: 'serial' }) at the top,`,
         `          then use test.addCase to write a test that targets the locale-specific behaviour.`,
         `          Import { test, expect } from src/fixtures/pages.fixture.ts as usual.`,
-        `       c. If the locale has no POM override file or the override doesn't affect this test,`,
-        `          skip — no companion needed.`,
+        `       c. If the locale has no override for the POMs this test uses, skip it.`,
         `  9. Stop.`,
       ]
     : [

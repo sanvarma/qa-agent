@@ -22,6 +22,7 @@ import { astAddImportTool } from '../tools/ast/addImport.js';
 import { startPlaywrightMcp, type PlaywrightMcpHandle } from '../mcp/playwrightServer.js';
 
 import { findTestAcrossSpecs } from '../ast/testScanner.js';
+import { resolveBrowseUrl } from './browseUrl.js';
 import { resolve } from 'node:path';
 import type { TestCase } from './testCase.js';
 import type { AgentLogger } from './logger.js';
@@ -44,10 +45,9 @@ export interface OrchestratorConfig {
   maxTokens: number;
   model: string;
   defaultSpecFile: string;          // relative to paths.tests
-  locales: string[];
   validation: { command: string; cwd?: string };
   browse?: {
-    appUrl: string;
+    baseUrl: string;
     selectorPreference: string[];
     headed?: boolean;
   };
@@ -116,9 +116,13 @@ export async function runOrchestrator(
   let mcpHandle: PlaywrightMcpHandle | undefined;
   const browseTools: AnyTool[] = [];
   if (cfg.browse) {
+    const browseUrl = resolveBrowseUrl(cfg.browse.baseUrl, tc.localeScope ?? 'generic');
     try {
       mcpHandle = await startPlaywrightMcp({
-        extraArgs: cfg.browse.headed ? [] : ['--headless'],
+        extraArgs: [
+          ...(cfg.browse.headed ? [] : ['--headless']),
+          '--browser-url', browseUrl,
+        ],
       });
       browseTools.push(...mcpHandle.tools);
       await logger.info('init', 'mcp.started', 0, {
@@ -174,8 +178,8 @@ async function runOrchestratorCore(
     await logger.info('generate', 'phase.enter', 0);
     try {
       await runAgent(
-        generateTask(tc, cfg.defaultSpecFile, cfg.locales),
-        { maxSteps: 20, model: cfg.model, maxTokens: cfg.maxTokens, system: generateSystemPrompt(cfg.locales) },
+        generateTask(tc, cfg.defaultSpecFile),
+        { maxSteps: 20, model: cfg.model, maxTokens: cfg.maxTokens, system: generateSystemPrompt() },
         { llm, tools: buildGenerateRegistry(browseTools), toolCtx, state: runState },
       );
       await logger.info('generate', 'phase.ok', 0);
@@ -295,7 +299,7 @@ async function runOrchestratorCore(
     try {
       await runAgent(
         fixTask(failure, classification, state.fixHistory),
-        { maxSteps: 10, model: cfg.model, maxTokens: cfg.maxTokens, system: fixSystemPrompt(cfg.locales) },
+        { maxSteps: 10, model: cfg.model, maxTokens: cfg.maxTokens, system: fixSystemPrompt() },
         { llm, tools: buildFixRegistry(browseTools), toolCtx, state: runState },
       );
       await logger.info('fix', 'phase.ok', state.fixAttemptsUsed);

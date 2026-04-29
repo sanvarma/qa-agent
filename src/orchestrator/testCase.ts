@@ -16,9 +16,9 @@ export const TestCaseSchema = z.object({
   // '<locale>'      → test goes in tests/locales/<locale>/; runs for that locale only.
   //                   Agent reads locale POM overrides and adds mode: serial.
   localeScope: z
-    .string()
+    .union([z.string(), z.array(z.string())])
     .default('generic')
-    .describe("'generic' for all-locale tests, or a locale code (e.g. 'es-pr') for locale-specific tests"),
+    .describe("'generic' | 'global' → no locale suffix. A locale string or array → first entry used as path segment."),
 });
 
 export type TestCase = z.infer<typeof TestCaseSchema>;

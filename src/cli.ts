@@ -211,7 +211,6 @@ async function runQa(args: QaArgs): Promise<void> {
       maxTokens: cfg.maxTokens,
       model: cfg.model,
       defaultSpecFile: 'tests/generic/agent-generated.spec.ts',
-      locales: cfg.locales,
       validation: { command: cfg.validation.command, cwd: cfg.validation.cwd },
       browse: cfg.browse,
     },
