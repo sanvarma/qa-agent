@@ -21,16 +21,26 @@ import { astAddImportTool } from '../tools/ast/addImport.js';
 // MCP-backed tools (browse.*). Started lazily only when cfg.browse is set.
 import { startPlaywrightMcp, type PlaywrightMcpHandle } from '../mcp/playwrightServer.js';
 
+import { findTestAcrossSpecs } from '../ast/testScanner.js';
+import { resolve } from 'node:path';
 import type { TestCase } from './testCase.js';
 import type { AgentLogger } from './logger.js';
 import {
+  type FixAttempt,
   type OrchestratorState,
   type Phase,
   incrementAttempt,
   initialState,
   transition,
 } from './state.js';
-import { fixSystemPrompt, fixTask, generateSystemPrompt, generateTask } from './prompts.js';
+import {
+  fixSystemPrompt,
+  fixTask,
+  generateSystemPrompt,
+  generateTask,
+  regenerateSystemPrompt,
+  regenerateTask,
+} from './prompts.js';
 
 export interface OrchestratorConfig {
   maxAttempts: number;
@@ -38,6 +48,9 @@ export interface OrchestratorConfig {
   model: string;
   defaultSpecFile: string;              // relative to paths.tests
   locales: string[];                    // active locales; drives locale-aware prompt context
+  // After this many consecutive failed fix attempts the orchestrator switches to
+  // the regenerate phase instead of another fix. Defaults to 2.
+  maxConsecutiveFixFailures: number;
   validation: { command: string; cwd?: string };
   // Optional: enables Playwright MCP discovery during generate/fix phases.
   // Presence of this block triggers MCP server startup.
@@ -58,6 +71,9 @@ export interface OrchestratorDeps {
 export interface OrchestratorResult {
   finalPhase: Extract<Phase, 'done' | 'exhausted'>;
   state: OrchestratorState;
+  // Set when the test title already existed in the repo — generation was skipped
+  // and the orchestrator went straight to EXECUTE to verify it still passes.
+  existingTestFile?: string;
 }
 
 /**
@@ -87,6 +103,21 @@ function buildFixRegistry(extras: AnyTool[] = []): ToolRegistry {
   reg.register(astAddImportTool);
   for (const t of extras) reg.register(t);
   // NOTE: test.createSpec/addCase excluded — fix phase does not create new tests.
+  return reg;
+}
+
+function buildRegenerateRegistry(extras: AnyTool[] = []): ToolRegistry {
+  // Regenerate has the full generate toolset plus editCase — it may need to
+  // rewrite an existing test body rather than create a new spec from scratch.
+  const reg = new ToolRegistry();
+  reg.register(fsReadTool);
+  reg.register(testEditCaseTool);
+  reg.register(testCreateSpecTool);
+  reg.register(testAddCaseTool);
+  reg.register(astAddImportTool);
+  reg.register(pomUpdateSelectorTool);
+  reg.register(pomEditMethodTool);
+  for (const t of extras) reg.register(t);
   return reg;
 }
 
@@ -141,8 +172,19 @@ export async function runOrchestrator(
     }
   }
 
+  // Pre-flight: check if a test with this title already exists anywhere under tests/.
+  // If so, skip generation and go straight to EXECUTE so we verify it still passes.
+  const testsDir = resolve(deps.toolCtx.repoRoot, deps.toolCtx.paths?.tests ?? 'tests');
+  const existing = findTestAcrossSpecs(tc.title, testsDir, deps.toolCtx.repoRoot);
+  if (existing) {
+    await logger.info('init', 'generate.skipped', 0, {
+      reason: 'test_already_exists',
+      foundAt: existing.repoRelativePath,
+    });
+  }
+
   try {
-    return await runOrchestratorCore(tc, cfg, deps, state, persist, browseTools);
+    return await runOrchestratorCore(tc, cfg, deps, state, persist, browseTools, existing?.repoRelativePath);
   } finally {
     if (mcpHandle) {
       try {
@@ -169,45 +211,53 @@ async function runOrchestratorCore(
   initialStateArg: OrchestratorState,
   persist: () => Promise<void>,
   browseTools: AnyTool[],
+  existingTestFile: string | undefined,
 ): Promise<OrchestratorResult> {
   const { agentLogger: logger, toolCtx, conversationLog: runState, llm } = deps;
   let state = initialStateArg;
 
-  // --- GENERATE (single attempt; no retry inside phase) ---------------------
-  state = incrementAttempt(state);
-  state = transition(state, 'generate');
-  await logger.info('generate', 'phase.enter', state.attemptsUsed);
+  // --- GENERATE (skipped when the test already exists in the repo) ----------
+  if (existingTestFile) {
+    // Jump straight to EXECUTE — just verify the existing test still passes.
+    state = transition(state, 'execute');
+  } else {
+    state = incrementAttempt(state);
+    state = transition(state, 'generate');
+    await logger.info('generate', 'phase.enter', state.attemptsUsed);
 
-  try {
-    await runAgent(
-      generateTask(tc, cfg.defaultSpecFile, cfg.locales),
-      {
-        maxSteps: 20,           // per-phase step cap; distinct from orchestrator maxAttempts
-        model: cfg.model,
-        maxTokens: cfg.maxTokens,
-        system: generateSystemPrompt(cfg.locales),
-      },
-      {
-        llm,
-        tools: buildGenerateRegistry(browseTools),
-        toolCtx,
-        state: runState,
-      },
-    );
-    await logger.info('generate', 'phase.ok', state.attemptsUsed);
-  } catch (err) {
-    await logger.error('generate', 'phase.error', state.attemptsUsed, {
-      message: (err as Error).message,
-    });
-    state = transition(state, 'exhausted', { ok: false, detail: { stage: 'generate', error: (err as Error).message } });
-    await persist();
-    return { finalPhase: 'exhausted', state };
+    try {
+      await runAgent(
+        generateTask(tc, cfg.defaultSpecFile, cfg.locales),
+        {
+          maxSteps: 20,         // per-phase step cap; distinct from orchestrator maxAttempts
+          model: cfg.model,
+          maxTokens: cfg.maxTokens,
+          system: generateSystemPrompt(cfg.locales),
+        },
+        {
+          llm,
+          tools: buildGenerateRegistry(browseTools),
+          toolCtx,
+          state: runState,
+        },
+      );
+      await logger.info('generate', 'phase.ok', state.attemptsUsed);
+    } catch (err) {
+      await logger.error('generate', 'phase.error', state.attemptsUsed, {
+        message: (err as Error).message,
+      });
+      state = transition(state, 'exhausted', { ok: false, detail: { stage: 'generate', error: (err as Error).message } });
+      await persist();
+      return { finalPhase: 'exhausted', state };
+    }
   }
 
   // --- EXECUTE / ANALYZE / FIX loop ----------------------------------------
   while (true) {
-    // EXECUTE
-    state = transition(state, 'execute');
+    // EXECUTE — transition only when not already in execute (skip-generate lands here directly)
+    if (state.phase !== 'execute') {
+      state = transition(state, 'execute');
+    }
     await logger.info('execute', 'phase.enter', state.attemptsUsed);
 
     const execReg = buildExecRegistry(cfg);
@@ -244,10 +294,11 @@ async function runOrchestratorCore(
     });
 
     if (runTestsOutput.success) {
+      state = { ...state, consecutiveFixFailures: 0 };
       state = transition(state, 'done');
       await persist();
       await logger.info('done', 'run.success', state.attemptsUsed);
-      return { finalPhase: 'done', state };
+      return { finalPhase: 'done', state, existingTestFile };
     }
 
     // ANALYZE
@@ -328,7 +379,18 @@ async function runOrchestratorCore(
       continue; // back to EXECUTE
     }
 
-    // FIX
+    // Record this failure in the fix history before deciding what to do with it.
+    const fixAttempt: FixAttempt = {
+      attemptNumber: state.attemptsUsed,
+      failure,
+      classification,
+    };
+    state = {
+      ...state,
+      fixHistory: [...state.fixHistory, fixAttempt],
+      consecutiveFixFailures: state.consecutiveFixFailures + 1,
+    };
+
     state = incrementAttempt(state);
     if (state.attemptsUsed > state.maxAttempts) {
       await logger.warn('analyze', 'budget.exhausted', state.attemptsUsed, {
@@ -342,39 +404,87 @@ async function runOrchestratorCore(
       return { finalPhase: 'exhausted', state };
     }
 
-    state = transition(state, 'fix');
-    await logger.info('fix', 'phase.enter', state.attemptsUsed, {
-      action: classification.action,
-      kind: classification.kind,
-    });
+    // Switch to REGENERATE when the fix loop is spinning without progress.
+    const shouldRegenerate =
+      state.consecutiveFixFailures >= cfg.maxConsecutiveFixFailures;
 
-    try {
-      await runAgent(
-        fixTask(failure, classification),
-        {
-          maxSteps: 10,
-          model: cfg.model,
-          maxTokens: cfg.maxTokens,
-          system: fixSystemPrompt(cfg.locales),
-        },
-        {
-          llm,
-          tools: buildFixRegistry(browseTools),
-          toolCtx,
-          state: runState,
-        },
-      );
-      await logger.info('fix', 'phase.ok', state.attemptsUsed);
-    } catch (err) {
-      await logger.error('fix', 'phase.error', state.attemptsUsed, {
-        message: (err as Error).message,
+    if (shouldRegenerate) {
+      // REGENERATE
+      state = transition(state, 'regenerate');
+      await logger.info('regenerate', 'phase.enter', state.attemptsUsed, {
+        consecutiveFixFailures: state.consecutiveFixFailures,
+        fixHistoryLength: state.fixHistory.length,
       });
-      state = transition(state, 'exhausted', {
-        ok: false,
-        detail: { stage: 'fix', error: (err as Error).message },
+
+      try {
+        await runAgent(
+          regenerateTask(tc, failure, state.fixHistory, cfg.locales),
+          {
+            maxSteps: 20,
+            model: cfg.model,
+            maxTokens: cfg.maxTokens,
+            system: regenerateSystemPrompt(cfg.locales),
+          },
+          {
+            llm,
+            tools: buildRegenerateRegistry(browseTools),
+            toolCtx,
+            state: runState,
+          },
+        );
+        await logger.info('regenerate', 'phase.ok', state.attemptsUsed);
+      } catch (err) {
+        await logger.error('regenerate', 'phase.error', state.attemptsUsed, {
+          message: (err as Error).message,
+        });
+        state = transition(state, 'exhausted', {
+          ok: false,
+          detail: { stage: 'regenerate', error: (err as Error).message },
+        });
+        await persist();
+        return { finalPhase: 'exhausted', state };
+      }
+
+      // Reset the consecutive counter — regenerate is a fresh start.
+      state = { ...state, consecutiveFixFailures: 0 };
+    } else {
+      // FIX
+      state = transition(state, 'fix');
+      await logger.info('fix', 'phase.enter', state.attemptsUsed, {
+        action: classification.action,
+        kind: classification.kind,
+        attempt: state.consecutiveFixFailures,
+        maxConsecutive: cfg.maxConsecutiveFixFailures,
       });
-      await persist();
-      return { finalPhase: 'exhausted', state };
+
+      try {
+        await runAgent(
+          fixTask(failure, classification, state.fixHistory),
+          {
+            maxSteps: 10,
+            model: cfg.model,
+            maxTokens: cfg.maxTokens,
+            system: fixSystemPrompt(cfg.locales),
+          },
+          {
+            llm,
+            tools: buildFixRegistry(browseTools),
+            toolCtx,
+            state: runState,
+          },
+        );
+        await logger.info('fix', 'phase.ok', state.attemptsUsed);
+      } catch (err) {
+        await logger.error('fix', 'phase.error', state.attemptsUsed, {
+          message: (err as Error).message,
+        });
+        state = transition(state, 'exhausted', {
+          ok: false,
+          detail: { stage: 'fix', error: (err as Error).message },
+        });
+        await persist();
+        return { finalPhase: 'exhausted', state };
+      }
     }
 
     await persist();

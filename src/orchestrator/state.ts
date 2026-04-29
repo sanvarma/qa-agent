@@ -5,13 +5,14 @@ import type { Classification } from '../failure/rules.js';
  * Phases are a strict state machine:
  *
  *   init
- *     └→ generate ─┬→ execute ─┬→ done                       (all tests pass)
- *                  │            └→ analyze ─┬→ fix ─→ execute (retry loop)
- *                  │                        └→ exhausted      (un-actionable or budget)
- *                  └→ exhausted                               (generate threw and retry exhausted)
+ *     └→ generate ──┬→ execute ─┬→ done                              (all tests pass)
+ *                   │            └→ analyze ─┬→ fix ──→ execute       (fix loop)
+ *                   │                        ├→ regenerate ─→ execute (escape hatch after N failed fixes)
+ *                   │                        └→ exhausted             (budget or un-actionable)
+ *                   └→ exhausted                                      (generate threw)
  *
  * The orchestrator transitions phases explicitly. The LLM is called only
- * inside generate and fix phases — never to decide transitions.
+ * inside generate, fix, and regenerate phases — never to decide transitions.
  */
 export type Phase =
   | 'init'
@@ -19,6 +20,7 @@ export type Phase =
   | 'execute'
   | 'analyze'
   | 'fix'
+  | 'regenerate'
   | 'done'
   | 'exhausted';
 
@@ -46,6 +48,15 @@ export interface AnalysisOutcome {
   classification: Classification;
 }
 
+// One entry per fix attempt — records what was wrong and how the agent tried to fix it.
+// The subsequent failure (if any) is recorded in the NEXT entry, giving the LLM a
+// before/after view of what it tried and whether it helped.
+export interface FixAttempt {
+  attemptNumber: number;
+  failure: NormalizedFailure;
+  classification: Classification;
+}
+
 export interface OrchestratorState {
   phase: Phase;
   attemptsUsed: number;
@@ -54,6 +65,15 @@ export interface OrchestratorState {
   // Carry-through across phases.
   lastExecution?: ExecutionOutcome;
   lastAnalysis?: AnalysisOutcome;
+
+  // Self-healing tracking.
+  // Every fix attempt in order — passed to the fix prompt so the LLM
+  // knows what was already tried and can avoid repeating it.
+  fixHistory: FixAttempt[];
+  // Resets to 0 on a successful execute or after a regenerate.
+  // When it reaches cfg.maxConsecutiveFixFailures the orchestrator
+  // switches to the regenerate phase instead of another fix.
+  consecutiveFixFailures: number;
 
   // Audit trail — append-only. Persisted alongside run.json.
   attempts: AttemptRecord[];
@@ -116,6 +136,8 @@ export function initialState(
     phase: 'init',
     attemptsUsed: 0,
     maxAttempts,
+    fixHistory: [],
+    consecutiveFixFailures: 0,
     attempts: [],
     runId,
     startedAt: new Date().toISOString(),

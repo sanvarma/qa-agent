@@ -212,6 +212,7 @@ async function runQa(args: QaArgs): Promise<void> {
       model: cfg.model,
       defaultSpecFile: 'tests/generic/agent-generated.spec.ts',
       locales: cfg.locales,
+      maxConsecutiveFixFailures: 2,
       validation: { command: cfg.validation.command, cwd: cfg.validation.cwd },
       browse: cfg.browse,
     },
@@ -229,6 +230,9 @@ async function runQa(args: QaArgs): Promise<void> {
         runId,
         finalPhase: result.finalPhase,
         attemptsUsed: result.state.attemptsUsed,
+        ...(result.existingTestFile
+          ? { skippedGenerate: true, existingTestFile: result.existingTestFile }
+          : {}),
         runDir,
       },
       null,
