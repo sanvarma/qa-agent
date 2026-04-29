@@ -207,12 +207,11 @@ async function runQa(args: QaArgs): Promise<void> {
   const result = await runOrchestrator(
     testCase,
     {
-      maxAttempts: cfg.maxSteps,       // reusing maxSteps as the attempt budget for now
+      maxFixAttempts: cfg.maxFixAttempts,
       maxTokens: cfg.maxTokens,
       model: cfg.model,
       defaultSpecFile: 'tests/generic/agent-generated.spec.ts',
       locales: cfg.locales,
-      maxConsecutiveFixFailures: 2,
       validation: { command: cfg.validation.command, cwd: cfg.validation.cwd },
       browse: cfg.browse,
     },
@@ -229,7 +228,7 @@ async function runQa(args: QaArgs): Promise<void> {
       {
         runId,
         finalPhase: result.finalPhase,
-        attemptsUsed: result.state.attemptsUsed,
+        fixAttemptsUsed: result.state.fixAttemptsUsed,
         ...(result.existingTestFile
           ? { skippedGenerate: true, existingTestFile: result.existingTestFile }
           : {}),

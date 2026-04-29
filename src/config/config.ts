@@ -6,6 +6,7 @@ export const ConfigSchema = z.object({
   model: z.string().default('unset'),
   maxSteps: z.number().int().positive().default(12),
   maxTokens: z.number().int().positive().default(4096),
+  maxFixAttempts: z.number().int().positive().default(3),
   // Validation command is wired here now so the future exec.runTests tool reads from one place.
   validation: z
     .object({
