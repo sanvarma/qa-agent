@@ -1,9 +1,0 @@
-{
-  "title": "hero banner is visible on home",
-  "steps": [
-    "Navigate to /",
-    "Assert LoginPage.heroBanner is visible"
-  ],
-  "expected": "The test must use LoginPage.heroBanner directly, not any other selector. Assert: await expect(login.heroBanner).toBeVisible({ timeout: 5000 })",
-  "specFile": "src/tests/login.spec.ts"
-}

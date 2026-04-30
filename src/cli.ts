@@ -17,6 +17,7 @@ import { pomEditMethodTool } from './tools/pom/editMethod.js';
 import { astAddImportTool } from './tools/ast/addImport.js';
 import { MockLLMClient } from './llm/mockClient.js';
 import { OllamaClient } from './llm/ollamaClient.js';
+import { AnthropicClient } from './llm/anthropicClient.js';
 import { loadConfig } from './config/config.js';
 import type { LLMClient } from './llm/client.js';
 import { runOrchestrator } from './orchestrator/qaAgent.js';
@@ -29,7 +30,7 @@ interface RunArgs {
   subcommand: 'run';
   task: string;
   repo: string;
-  llm: 'mock' | 'ollama';
+  llm: 'mock' | 'ollama' | 'anthropic';
   ollamaUrl?: string;
 }
 
@@ -37,7 +38,7 @@ interface QaArgs {
   subcommand: 'qa';
   testcase: string;       // path to JSON test case file
   repo: string;
-  llm: 'mock' | 'ollama';
+  llm: 'mock' | 'ollama' | 'anthropic';
   ollamaUrl?: string;
 }
 
@@ -95,7 +96,6 @@ function resolveOllamaUrl(explicit?: string): string {
 function buildLLM(kind: RunArgs['llm'], ollamaUrl?: string): LLMClient {
   switch (kind) {
     case 'mock':
-      // Scripted plan: read package.json, then stop. Proves the loop end-to-end.
       return new MockLLMClient([
         {
           text: 'I will inspect the repo by reading package.json.',
@@ -112,6 +112,8 @@ function buildLLM(kind: RunArgs['llm'], ollamaUrl?: string): LLMClient {
       ]);
     case 'ollama':
       return new OllamaClient({ url: resolveOllamaUrl(ollamaUrl) });
+    case 'anthropic':
+      return new AnthropicClient();
   }
 }
 
@@ -121,6 +123,8 @@ function buildQaLLM(kind: QaArgs['llm'], ollamaUrl?: string): LLMClient {
       return new MockLLMClient([]);
     case 'ollama':
       return new OllamaClient({ url: resolveOllamaUrl(ollamaUrl) });
+    case 'anthropic':
+      return new AnthropicClient();
   }
 }
 
@@ -180,6 +184,7 @@ async function runGeneric(args: RunArgs): Promise<void> {
 }
 
 async function runQa(args: QaArgs): Promise<void> {
+  const startedAt = Date.now();
   const repoRoot = resolve(args.repo);
   const cfg = await loadConfig(repoRoot);
   const testCase = await loadTestCase(resolve(args.testcase));
@@ -208,6 +213,7 @@ async function runQa(args: QaArgs): Promise<void> {
     testCase,
     {
       maxFixAttempts: cfg.maxFixAttempts,
+      maxRetryAttempts: cfg.maxRetryAttempts,
       maxTokens: cfg.maxTokens,
       model: cfg.model,
       defaultSpecFile: 'tests/generic/agent-generated.spec.ts',
@@ -222,12 +228,17 @@ async function runQa(args: QaArgs): Promise<void> {
     },
   );
 
+  const durationMs = Date.now() - startedAt;
+  const durationMin = (durationMs / 60_000).toFixed(2);
+
   console.log(
     JSON.stringify(
       {
         runId,
         finalPhase: result.finalPhase,
         fixAttemptsUsed: result.state.fixAttemptsUsed,
+        retryAttemptsUsed: result.state.retryAttemptsUsed,
+        durationMin: Number(durationMin),
         ...(result.existingTestFile
           ? { skippedGenerate: true, existingTestFile: result.existingTestFile }
           : {}),
@@ -237,6 +248,7 @@ async function runQa(args: QaArgs): Promise<void> {
       2,
     ),
   );
+  console.log(`\n⏱  Completed in ${durationMin} min`);
 }
 
 async function main(): Promise<void> {

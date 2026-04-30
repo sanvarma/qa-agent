@@ -17,6 +17,7 @@ const CURATED_BROWSE_TOOLS: ReadonlySet<string> = new Set([
   'browse.click',
   'browse.type',
   'browse.hover',
+  'browse.evaluate',
 ]);
 
 export interface PlaywrightMcpOptions {
@@ -25,6 +26,8 @@ export interface PlaywrightMcpOptions {
    * most use — the package's defaults (chromium, headless) are sensible.
    */
   extraArgs?: string[];
+  /** Truncate browse.snapshot text responses to this many lines (default 150). */
+  maxSnapshotLines?: number;
 }
 
 export interface PlaywrightMcpHandle {
@@ -61,8 +64,10 @@ export async function startPlaywrightMcp(
   const tools: AnyTool[] = [];
   const registeredToolNames: string[] = [];
 
+  const maxSnapshotLines = options.maxSnapshotLines ?? 150;
+
   for (const spec of allTools) {
-    const federated = federateMcpTool(spec, 'browse', client);
+    const federated = federateMcpTool(spec, 'browse', client, { maxSnapshotLines });
     if (!CURATED_BROWSE_TOOLS.has(federated.name)) continue;
     tools.push(federated as unknown as AnyTool);
     registeredToolNames.push(federated.name);

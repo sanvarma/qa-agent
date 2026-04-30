@@ -1,0 +1,13 @@
+{
+  "title": "search for a product by name shows results",
+  "specFile": "tests/generic/products.spec.ts",
+  "localeScope": "generic",
+  "steps": [
+    "Navigate to /products",
+    "Type 'top' into the search input",
+    "Click the search button",
+    "Assert the search results heading is visible",
+    "Assert at least one product card is visible"
+  ],
+  "expected": "ProductsPage shows a 'Searched Products' heading and product results after searching"
+}

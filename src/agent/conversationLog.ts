@@ -12,7 +12,7 @@ export interface RunMeta {
 
 export class ConversationLog {
   readonly turns: Turn[] = [];
-  constructor(readonly meta: RunMeta, private readonly dir: string) {}
+  constructor(readonly meta: RunMeta, readonly dir: string) {}
 
   append(turn: Turn): void {
     this.turns.push(turn);

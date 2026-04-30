@@ -2,6 +2,27 @@ import { z } from 'zod';
 import type { Tool } from '../tools/tool.js';
 import type { McpStdioClient, McpCallResult, McpToolSpec } from './client.js';
 
+export interface FederateOptions {
+  /** If set, truncates large text blocks in ALL browse tool responses to this
+   *  many lines. browse.navigate and browse.click both return inline page
+   *  snapshots that can be 900+ lines on product listing pages. A trailing
+   *  note is appended so the LLM knows the output was cut. */
+  maxSnapshotLines?: number;
+}
+
+function truncateSnapshotContent(result: McpCallResult, maxLines: number): McpCallResult {
+  const content = result.content.map((block) => {
+    if (typeof (block as { type?: string }).type !== 'string') return block;
+    const b = block as { type: string; text?: string };
+    if (b.type !== 'text' || !b.text) return block;
+    const lines = b.text.split('\n');
+    if (lines.length <= maxLines) return block;
+    const truncated = lines.slice(0, maxLines).join('\n');
+    return { ...b, text: `${truncated}\n\n[snapshot truncated: showed ${maxLines} of ${lines.length} lines]` };
+  });
+  return { ...result, content };
+}
+
 /**
  * Convert one MCP tool spec into our internal Tool<I, O> shape.
  *
@@ -24,6 +45,7 @@ export function federateMcpTool(
   spec: McpToolSpec,
   namespace: string,
   client: McpStdioClient,
+  opts: FederateOptions = {},
 ): Tool<Record<string, unknown>, McpCallResult> {
   const toolName = `${namespace}.${stripBrowserPrefix(spec.name)}`;
 
@@ -41,7 +63,11 @@ export function federateMcpTool(
     async run(input) {
       // Pass the ORIGINAL MCP tool name on the wire — we only renamed it
       // for our registry. The server still knows it as spec.name.
-      return client.callTool(spec.name, input);
+      const result = await client.callTool(spec.name, input);
+      if (opts.maxSnapshotLines) {
+        return truncateSnapshotContent(result, opts.maxSnapshotLines);
+      }
+      return result;
     },
   };
 }

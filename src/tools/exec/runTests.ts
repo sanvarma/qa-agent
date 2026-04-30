@@ -71,14 +71,15 @@ export function createRunTestsTool(defaults: RunTestsDefaults): Tool<Input, Outp
       const baseCommand = input.command ?? defaults.command;
       const parts: string[] = [baseCommand];
       if (input.grep) {
-        // Shell-escape the grep value. Simple single-quote wrap; reject embedded single quotes.
-        if (input.grep.includes("'")) throw new Error("grep must not contain single quotes");
-        parts.push(`--grep '${input.grep}'`);
+        // Shell-escape the grep value using double quotes, which work on both
+        // Windows cmd.exe and Unix shells. Escape embedded double quotes.
+        const escaped = input.grep.replace(/"/g, process.platform === 'win32' ? '""' : '\\"');
+        parts.push(`--grep "${escaped}"`);
       }
       if (input.extraArgs && input.extraArgs.length > 0) {
         for (const a of input.extraArgs) {
-          if (a.includes("'")) throw new Error('extraArgs must not contain single quotes');
-          parts.push(`'${a}'`);
+          const escaped = a.replace(/"/g, process.platform === 'win32' ? '""' : '\\"');
+          parts.push(`"${escaped}"`);
         }
       }
       const fullCommand = parts.join(' ');

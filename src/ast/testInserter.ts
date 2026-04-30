@@ -21,6 +21,7 @@ export interface InsertArgs {
   title: string;
   describe?: string;       // if provided, must exist as a top-level describe in the file
   body: string;            // raw statements for the test callback body (no braces)
+  fixtures?: string[];     // fixture names to destructure, e.g. ['productsPage', 'testData']
   position: 'start' | 'end';
 }
 
@@ -128,6 +129,43 @@ function findTopLevelDescribe(sf: SourceFile, title: string): DescribeMatch[] {
 // -- Duplicate detection within a scope -------------------------------------
 
 /**
+ * Recursively collect ALL test titles anywhere in the file, regardless of nesting.
+ * Used for file-wide duplicate detection so the same title can't appear in both
+ * a describe block and at the top level.
+ */
+function collectAllTestTitles(suite: SourceFile | Block): Map<string, number> {
+  const titles = new Map<string, number>();
+
+  function walk(scope: SourceFile | Block) {
+    for (const stmt of scope.getStatements()) {
+      if (!Node.isExpressionStatement(stmt)) continue;
+      const expr = stmt.getExpression();
+      if (!Node.isCallExpression(expr)) continue;
+
+      const { kind, title } = classifyTopLevelCall(expr);
+      if (kind === 'test' && title !== undefined) {
+        if (!titles.has(title)) titles.set(title, stmt.getStartLineNumber());
+      }
+      // Recurse into describe blocks.
+      if (kind === 'describe') {
+        const args = expr.getArguments();
+        for (let i = args.length - 1; i >= 0; i--) {
+          const a = args[i];
+          if (Node.isArrowFunction(a) || Node.isFunctionExpression(a)) {
+            const body = a.getBody();
+            if (Node.isBlock(body)) walk(body);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  walk(suite);
+  return titles;
+}
+
+/**
  * Collect test titles whose test(...) call lives directly inside the given scope.
  * We only look one level deep — a test nested inside a describe inside our scope
  * is not a duplicate for our purposes.
@@ -159,9 +197,12 @@ function collectDirectTestTitles(scope: SourceFile | Block): Map<string, number>
  *
  * Body lines keep their existing indentation (caller supplies).
  */
-function renderTestStatement(title: string, body: string): string {
+function renderTestStatement(title: string, body: string, fixtures: string[] = []): string {
   // Escape single quotes and backslashes in the title so we can use single quotes.
   const safeTitle = title.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+  // Build the destructured args: page is always included, then any requested fixtures.
+  const allArgs = ['page', ...fixtures.filter((f) => f !== 'page')].join(', ');
 
   // If body is empty or whitespace-only, still emit a valid block.
   const bodyTrimmed = body.replace(/\s+$/, '');
@@ -172,7 +213,7 @@ function renderTestStatement(title: string, body: string): string {
         .join('\n') + '\n'
     : '';
 
-  return `test('${safeTitle}', async ({ page }) => {\n${indentedBody}});`;
+  return `test('${safeTitle}', async ({ ${allArgs} }) => {\n${indentedBody}});`;
 }
 
 // -- Public API -------------------------------------------------------------
@@ -199,17 +240,18 @@ export function insertTestCase(sf: SourceFile, args: InsertArgs): InsertResult {
     scope = sf;
   }
 
-  // Duplicate detection within scope.
-  const existing = collectDirectTestTitles(scope);
-  if (existing.has(args.title)) {
+  // File-wide duplicate detection — same title must not exist anywhere in the file,
+  // regardless of whether it is at top level or inside a describe block.
+  const fileWide = collectAllTestTitles(sf);
+  if (fileWide.has(args.title)) {
     throw new InsertError(
       'duplicate_title',
-      `test '${args.title}' already exists at line ${existing.get(args.title)}`,
+      `test '${args.title}' already exists at line ${fileWide.get(args.title)}`,
     );
   }
 
   // Render and insert.
-  const text = renderTestStatement(args.title, args.body);
+  const text = renderTestStatement(args.title, args.body, args.fixtures);
 
   // Both SourceFile and Block expose getStatements / insertStatements via
   // ts-morph's StatementedNode. Compute the index and insert uniformly.

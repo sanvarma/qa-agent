@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { readFile } from 'node:fs/promises';
-import { resolve, relative, isAbsolute } from 'node:path';
+import { resolve, relative, isAbsolute, dirname, extname } from 'node:path';
 import type { Tool, ToolContext } from '../tool.js';
 import { getProject, invalidateSourceFile } from '../../ast/project.js';
 import { addImport, ImportError } from '../../ast/importEditor.js';
@@ -53,6 +53,29 @@ function resolveInTestsOrPages(filePath: string, ctx: ToolContext): string {
   );
 }
 
+/**
+ * If `from` is a bare repo-relative path (e.g. "src/fixtures/pages.fixture.ts"),
+ * convert it to a relative specifier from the importing file's directory.
+ * Strips the file extension so TypeScript resolves it correctly.
+ * Leaves package imports (e.g. "@playwright/test") and already-relative paths untouched.
+ */
+function toRelativeSpecifier(from: string, importingFileAbs: string, repoRoot: string): string {
+  // Already relative or a package import — leave as-is.
+  if (from.startsWith('.') || from.startsWith('@') || isAbsolute(from)) return from;
+  // Heuristic: if it contains a '/' but no leading '.', treat as repo-relative path.
+  if (!from.includes('/')) return from;
+
+  const targetAbs = resolve(repoRoot, from);
+  let rel = relative(dirname(importingFileAbs), targetAbs);
+  // Normalize Windows backslashes to forward slashes.
+  rel = rel.replace(/\\/g, '/');
+  // Ensure leading ./
+  if (!rel.startsWith('.')) rel = `./${rel}`;
+  // Strip .ts extension — TypeScript resolves without it.
+  if (extname(rel) === '.ts') rel = rel.slice(0, -3);
+  return rel;
+}
+
 export const astAddImportTool: Tool<Input, Output> = {
   name: 'ast.addImport',
   description:
@@ -83,10 +106,14 @@ export const astAddImportTool: Tool<Input, Output> = {
     invalidateSourceFile(ctx.repoRoot, absPath);
     const sf = project.createSourceFile(absPath, beforeSource, { overwrite: true });
 
+    // If `from` looks like a repo-relative path (no leading ./ or ../ and not a package),
+    // convert it to a relative path from the target file's directory.
+    const moduleSpecifier = toRelativeSpecifier(input.from, absPath, ctx.repoRoot);
+
     let result;
     try {
       result = addImport(sf, {
-        moduleSpecifier: input.from,
+        moduleSpecifier,
         named: input.named,
         defaultName: input.default,
         typeOnly: input.typeOnly,

@@ -13,8 +13,9 @@
     "test": "node --import tsx test/run.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.91.1",
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "@playwright/mcp": "^0.0.30",
+    "@playwright/mcp": "^0.0.71",
     "ts-morph": "^22.0.0",
     "zod": "^3.23.8"
   },

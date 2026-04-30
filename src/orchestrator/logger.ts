@@ -17,6 +17,7 @@ export interface LogEvent {
 export class AgentLogger {
   private readonly path: string;
   private dirPromise: Promise<void>;
+  readonly events: LogEvent[] = [];
 
   constructor(runDir: string, private readonly runId: string, private readonly toStdout: boolean = true) {
     this.path = join(runDir, 'orchestrator.log.jsonl');
@@ -35,6 +36,7 @@ export class AgentLogger {
       runId: this.runId,
       data,
     };
+    this.events.push(entry);
     await this.dirPromise;
     const line = JSON.stringify(entry) + '\n';
     await appendFile(this.path, line, 'utf8');

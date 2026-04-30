@@ -7,6 +7,7 @@ export const ConfigSchema = z.object({
   maxSteps: z.number().int().positive().default(12),
   maxTokens: z.number().int().positive().default(4096),
   maxFixAttempts: z.number().int().positive().default(3),
+  maxRetryAttempts: z.number().int().positive().default(3),
   // Validation command is wired here now so the future exec.runTests tool reads from one place.
   validation: z
     .object({
@@ -34,11 +35,14 @@ export const ConfigSchema = z.object({
       // layer uses this to score candidate selectors extracted from the accessibility
       // tree. Unknown tokens are allowed but will simply never match.
       selectorPreference: z
-        .array(z.enum(['data-testid', 'id', 'role', 'text', 'label', 'xpath']))
-        .default(['data-testid', 'id', 'role', 'text', 'label', 'xpath']),
+        .array(z.enum(['data-testid', 'id', 'class', 'role', 'text', 'label', 'xpath']))
+        .default(['data-testid', 'id', 'class', 'role', 'text', 'label', 'xpath']),
       // When true, the Playwright MCP subprocess runs with a visible browser
       // window. Helpful for debugging discovery; off by default for CI.
       headed: z.boolean().default(false),
+      email: z.string().optional(),
+      password: z.string().optional(),
+      maxSnapshotLines: z.number().int().positive().default(150),
     })
     .optional(),
 });

@@ -1,23 +1,23 @@
 /**
  * Generate the contents of a new, empty Playwright spec file.
  *
- * Shape:
- *   import { test, expect } from '@playwright/test';
+ * Always emits `import { test, expect } from '<fixtureImport>'` so the
+ * agent never has to construct the fixture import path by hand.
  *
- *   test.describe('<name>', () => {
- *   });
- *
- * If `describe` is omitted, the describe block is omitted too — the file
- * is just the import, ready for top-level test(...) calls.
- *
- * Deliberately minimal: no fixtures, no hooks, no config. If a project needs
- * different boilerplate, that's a per-repo concern we'll parameterize later.
+ * If `describe` is supplied an empty describe block is added.
+ * If `serial` is true, `test.describe.configure({ mode: 'serial' })` is
+ * added inside the block (for locale-specific specs).
  */
-export function scaffoldSpec(args: { describe?: string }): string {
-  const header = `import { test, expect } from '@playwright/test';\n`;
+export function scaffoldSpec(args: {
+  describe?: string;
+  serial?: boolean;
+  fixtureImport: string;
+}): string {
+  const importLine = `import { test, expect } from '${args.fixtureImport}';`;
   if (!args.describe) {
-    return header + `\n`;
+    return `${importLine}\n`;
   }
   const safe = args.describe.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-  return header + `\ntest.describe('${safe}', () => {\n});\n`;
+  const serialLine = args.serial ? `  test.describe.configure({ mode: 'serial' });\n` : '';
+  return `${importLine}\n\ntest.describe('${safe}', () => {\n${serialLine}});\n`;
 }

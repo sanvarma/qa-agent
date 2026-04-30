@@ -3,6 +3,7 @@ import type { ToolRegistry } from '../tools/registry.js';
 import type { ToolContext } from '../tools/tool.js';
 import type { ConversationLog } from './conversationLog.js';
 import type { Turn, ToolResult } from './types.js';
+import { compressHistoryForLLM } from './compress.js';
 
 export interface AgentOptions {
   maxSteps: number;
@@ -23,6 +24,7 @@ export type StopReason = 'end_turn' | 'max_steps' | 'max_tokens' | 'other';
 export interface AgentResult {
   stopReason: StopReason;
   steps: number;
+  usage: { inputTokens: number; outputTokens: number };
 }
 
 /**
@@ -42,6 +44,7 @@ export async function runAgent(
   deps: AgentDeps,
 ): Promise<AgentResult> {
   const { llm, tools, toolCtx, state } = deps;
+  const usage = { inputTokens: 0, outputTokens: 0 };
 
   // Seed conversation with the user task.
   state.append({ role: 'user', content: { text: task, toolResults: [] } });
@@ -50,27 +53,33 @@ export async function runAgent(
     const assistant = await llm.complete({
       system: opts.system,
       tools: tools.specs(),
-      history: state.turns,
+      history: compressHistoryForLLM(state.turns),
       model: opts.model,
       maxTokens: opts.maxTokens,
     });
+
+    if (assistant.usage) {
+      usage.inputTokens += assistant.usage.inputTokens;
+      usage.outputTokens += assistant.usage.outputTokens;
+    }
 
     const assistantTurn: Turn = { role: 'assistant', content: assistant };
     state.append(assistantTurn);
 
     if (assistant.toolCalls.length === 0) {
-      return { stopReason: assistant.stopReason === 'end_turn' ? 'end_turn' : 'other', steps: step };
+      return { stopReason: assistant.stopReason === 'end_turn' ? 'end_turn' : 'other', steps: step, usage };
     }
 
     // Dispatch all tool calls for this turn. Sequential for determinism.
     const results: ToolResult[] = [];
     for (const call of assistant.toolCalls) {
       const res = await tools.dispatch(call, toolCtx);
-      results.push(res);
+      // Tag with tool name so compress.ts can apply tool-specific compression.
+      results.push({ ...res, toolName: call.name });
     }
 
     state.append({ role: 'user', content: { toolResults: results } });
   }
 
-  return { stopReason: 'max_steps', steps: opts.maxSteps };
+  return { stopReason: 'max_steps', steps: opts.maxSteps, usage };
 }

@@ -12,6 +12,7 @@ const Input = z.object({
   title: z.string().min(1),
   describe: z.string().optional().describe('Top-level describe to insert into; omit for top-level test'),
   body: z.string().min(1).describe('Raw statements for the test callback body, no surrounding braces'),
+  fixtures: z.array(z.string()).optional().describe('Fixture names to destructure from test args, e.g. ["productsPage", "productDetailPage"]. page is always included. Do NOT include these as imports — they are injected by Playwright.'),
   position: z.enum(['start', 'end']).optional().default('end'),
 });
 type Input = z.infer<typeof Input>;
@@ -26,7 +27,10 @@ interface Output {
 export const testAddCaseTool: Tool<Input, Output> = {
   name: 'test.addCase',
   description:
-    'Insert a new test(title, async ({ page }) => { ... }) into an existing spec file. ' +
+    'Insert a new test case into an existing spec file. ' +
+    'Pass fixtures[] with the page-object fixture names the test needs (e.g. ["productsPage", "productDetailPage"]) — ' +
+    'they will be destructured from the test function args automatically: async ({ page, productsPage, productDetailPage }) => { ... }. ' +
+    'page is always included. Do NOT import fixture names at module level — they are injected by Playwright. ' +
     'If a describe is provided, inserts inside that top-level describe; otherwise at top level. ' +
     'Refuses if a test with the same title already exists in the target scope. ' +
     'Does NOT create the spec file — use test.createSpec for that.',
@@ -38,6 +42,7 @@ export const testAddCaseTool: Tool<Input, Output> = {
       title: { type: 'string' },
       describe: { type: 'string' },
       body: { type: 'string' },
+      fixtures: { type: 'array', items: { type: 'string' } },
       position: { type: 'string', enum: ['start', 'end'], default: 'end' },
     },
     required: ['file', 'title', 'body'],
@@ -62,6 +67,7 @@ export const testAddCaseTool: Tool<Input, Output> = {
         title: input.title,
         describe: input.describe,
         body: input.body,
+        fixtures: input.fixtures,
         position: input.position ?? 'end',
       });
     } catch (err) {

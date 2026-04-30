@@ -5,6 +5,7 @@ import { Node, ClassDeclaration, CallExpression, PropertyDeclaration, Expression
 // `getByRole` is deliberately excluded: its first arg is a role, not a selector.
 const STRING_FIRST_ARG_CALLS = new Set([
   'locator',
+  'loc',          // BasePage helper: this.loc(selector) = this.page.locator(selector)
   'getByTestId',
   'getByText',
   'getByLabel',
@@ -19,6 +20,7 @@ const ROLE_BASED_CALLS = new Set(['getByRole']);
 
 export type LocatorMethod =
   | 'locator'
+  | 'loc'
   | 'getByTestId'
   | 'getByText'
   | 'getByLabel'

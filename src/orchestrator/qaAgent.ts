@@ -16,14 +16,18 @@ import { testAddCaseTool } from '../tools/test/addCase.js';
 import { testEditCaseTool } from '../tools/test/editCase.js';
 import { pomUpdateSelectorTool } from '../tools/pom/updateSelector.js';
 import { pomEditMethodTool } from '../tools/pom/editMethod.js';
+import { pomCreatePageTool } from '../tools/pom/createPage.js';
+import { pomAddSelectorTool } from '../tools/pom/addSelector.js';
+import { fixtureAddPageTool } from '../tools/fixture/addPage.js';
 import { astAddImportTool } from '../tools/ast/addImport.js';
 
 // MCP-backed tools (browse.*). Started lazily only when cfg.browse is set.
 import { startPlaywrightMcp, type PlaywrightMcpHandle } from '../mcp/playwrightServer.js';
 
 import { findTestAcrossSpecs } from '../ast/testScanner.js';
-import { resolveBrowseUrl } from './browseUrl.js';
-import { resolve } from 'node:path';
+import { generateRunViewerHtml } from '../agent/runViewer.js';
+import { writeFile } from 'node:fs/promises';
+import { resolve, join } from 'node:path';
 import type { TestCase } from './testCase.js';
 import type { AgentLogger } from './logger.js';
 import {
@@ -42,6 +46,7 @@ import {
 
 export interface OrchestratorConfig {
   maxFixAttempts: number;           // how many fix cycles before giving up
+  maxRetryAttempts: number;         // how many classifier 'retry' loops before giving up
   maxTokens: number;
   model: string;
   defaultSpecFile: string;          // relative to paths.tests
@@ -50,6 +55,9 @@ export interface OrchestratorConfig {
     baseUrl: string;
     selectorPreference: string[];
     headed?: boolean;
+    email?: string;
+    password?: string;
+    maxSnapshotLines?: number;
   };
 }
 
@@ -72,6 +80,9 @@ function buildGenerateRegistry(extras: AnyTool[] = []): ToolRegistry {
   reg.register(testCreateSpecTool);
   reg.register(testAddCaseTool);
   reg.register(astAddImportTool);
+  reg.register(pomCreatePageTool);
+  reg.register(pomAddSelectorTool);
+  reg.register(fixtureAddPageTool);
   reg.register(pomUpdateSelectorTool);
   reg.register(pomEditMethodTool);
   for (const t of extras) reg.register(t);
@@ -83,6 +94,7 @@ function buildFixRegistry(extras: AnyTool[] = []): ToolRegistry {
   reg.register(fsReadTool);
   reg.register(testEditCaseTool);
   reg.register(pomUpdateSelectorTool);
+  reg.register(pomAddSelectorTool);
   reg.register(pomEditMethodTool);
   reg.register(astAddImportTool);
   for (const t of extras) reg.register(t);
@@ -116,13 +128,10 @@ export async function runOrchestrator(
   let mcpHandle: PlaywrightMcpHandle | undefined;
   const browseTools: AnyTool[] = [];
   if (cfg.browse) {
-    const browseUrl = resolveBrowseUrl(cfg.browse.baseUrl, tc.localeScope ?? 'generic');
     try {
       mcpHandle = await startPlaywrightMcp({
-        extraArgs: [
-          ...(cfg.browse.headed ? [] : ['--headless']),
-          '--browser-url', browseUrl,
-        ],
+        extraArgs: cfg.browse.headed ? [] : ['--headless'],
+        maxSnapshotLines: cfg.browse.maxSnapshotLines,
       });
       browseTools.push(...mcpHandle.tools);
       await logger.info('init', 'mcp.started', 0, {
@@ -155,6 +164,12 @@ export async function runOrchestrator(
         await logger.warn('done', 'mcp.stop_failed', 0, { message: (err as Error).message });
       }
     }
+    try {
+      const html = generateRunViewerHtml(deps.conversationLog.meta, deps.conversationLog.turns, deps.agentLogger.events);
+      await writeFile(join(deps.conversationLog.dir, 'run-viewer.html'), html, 'utf8');
+    } catch {
+      // non-fatal: viewer generation failure shouldn't break the run
+    }
   }
 }
 
@@ -177,12 +192,12 @@ async function runOrchestratorCore(
     state = transition(state, 'generate');
     await logger.info('generate', 'phase.enter', 0);
     try {
-      await runAgent(
-        generateTask(tc, cfg.defaultSpecFile),
-        { maxSteps: 20, model: cfg.model, maxTokens: cfg.maxTokens, system: generateSystemPrompt() },
+      const genResult = await runAgent(
+        generateTask(tc, cfg.defaultSpecFile, cfg.browse?.baseUrl),
+        { maxSteps: 40, model: cfg.model, maxTokens: cfg.maxTokens, system: generateSystemPrompt(cfg.browse) },
         { llm, tools: buildGenerateRegistry(browseTools), toolCtx, state: runState },
       );
-      await logger.info('generate', 'phase.ok', 0);
+      await logger.info('generate', 'phase.ok', 0, { steps: genResult.steps, usage: genResult.usage });
     } catch (err) {
       await logger.error('generate', 'phase.error', 0, { message: (err as Error).message });
       state = transition(state, 'exhausted', { ok: false, detail: { stage: 'generate', error: (err as Error).message } });
@@ -198,7 +213,7 @@ async function runOrchestratorCore(
 
     const execReg = buildExecRegistry(cfg);
     const runResult = await execReg.dispatch(
-      { id: 'orch.run', name: 'exec.runTests', input: {} },
+      { id: 'orch.run', name: 'exec.runTests', input: { grep: tc.title } },
       toolCtx,
     );
     if (!runResult.ok) {
@@ -226,7 +241,7 @@ async function runOrchestratorCore(
     await logger.info('analyze', 'phase.enter', state.fixAttemptsUsed);
 
     const parseResult = await execReg.dispatch(
-      { id: 'orch.parse', name: 'exec.parseReport', input: { reportPath: runOutput.reportPath, maxFailures: 1 } },
+      { id: 'orch.parse', name: 'exec.parseReport', input: { reportPath: runOutput.reportPath, maxFailures: 50 } },
       toolCtx,
     );
     if (!parseResult.ok) {
@@ -241,14 +256,25 @@ async function runOrchestratorCore(
       failures: Array<{ testTitle: string; file: string; line?: number; column?: number; status: 'failed' | 'timedOut' | 'interrupted'; message: string; rawSnippet: string }>;
     };
 
-    if (parsed.failures.length === 0) {
-      await logger.warn('analyze', 'no_failures_but_exit_nonzero', state.fixAttemptsUsed, { totals: parsed.totals });
-      state = transition(state, 'exhausted', { ok: false, detail: { reason: 'no_failures_but_exit_nonzero', totals: parsed.totals } });
+    // Filter to failures that belong to our test case specifically.
+    // Other tests in the suite may fail — that is not this orchestrator's concern.
+    // testTitle in the report may be prefixed by a describe block, e.g. "My Suite > my test".
+    const myFailures = parsed.failures.filter(
+      (f) => f.testTitle === tc.title || f.testTitle.endsWith(`> ${tc.title}`),
+    );
+
+    if (myFailures.length === 0) {
+      // Our test passed; other tests may have failed but we don't own them.
+      state = transition(state, 'done');
       await persist();
-      return { finalPhase: 'exhausted', state };
+      await logger.info('done', 'run.success', state.fixAttemptsUsed, {
+        note: 'managed_test_passed_suite_had_other_failures',
+        totals: parsed.totals,
+      });
+      return { finalPhase: 'done', state, existingTestFile };
     }
 
-    const failure = parsed.failures[0];
+    const failure = myFailures[0];
     const classification = await classifyFailure(failure);
     state = { ...state, lastAnalysis: { failure, classification } };
     await logger.info('analyze', 'phase.ok', state.fixAttemptsUsed, {
@@ -257,8 +283,27 @@ async function runOrchestratorCore(
     });
 
     // 'retry' means flake — just re-run without consuming a fix attempt.
+    // Guard against infinite retry loops with a hard cap.
     if (classification.action === 'retry') {
-      await logger.info('analyze', 'retry.no_fix_needed', state.fixAttemptsUsed);
+      state = { ...state, retryAttemptsUsed: state.retryAttemptsUsed + 1 };
+      if (state.retryAttemptsUsed >= cfg.maxRetryAttempts) {
+        await logger.warn('analyze', 'retry.budget_exhausted', state.fixAttemptsUsed, {
+          maxRetryAttempts: cfg.maxRetryAttempts,
+          retryAttemptsUsed: state.retryAttemptsUsed,
+          kind: classification.kind,
+          cause: classification.cause,
+        });
+        state = transition(state, 'exhausted', {
+          ok: false,
+          detail: { reason: 'retry_budget_exhausted', retryAttemptsUsed: state.retryAttemptsUsed, classification },
+        });
+        await persist();
+        return { finalPhase: 'exhausted', state };
+      }
+      await logger.info('analyze', 'retry.no_fix_needed', state.fixAttemptsUsed, {
+        retryAttemptsUsed: state.retryAttemptsUsed,
+        maxRetryAttempts: cfg.maxRetryAttempts,
+      });
       await persist();
       continue;
     }
@@ -297,17 +342,18 @@ async function runOrchestratorCore(
     });
 
     try {
-      await runAgent(
+      const fixResult = await runAgent(
         fixTask(failure, classification, state.fixHistory),
-        { maxSteps: 10, model: cfg.model, maxTokens: cfg.maxTokens, system: fixSystemPrompt() },
+        { maxSteps: 10, model: cfg.model, maxTokens: cfg.maxTokens, system: fixSystemPrompt(cfg.browse) },
         { llm, tools: buildFixRegistry(browseTools), toolCtx, state: runState },
       );
-      await logger.info('fix', 'phase.ok', state.fixAttemptsUsed);
+      await logger.info('fix', 'phase.ok', state.fixAttemptsUsed, { steps: fixResult.steps, usage: fixResult.usage });
     } catch (err) {
+      // Transient error (e.g. LLM fetch failed). The fix attempt was already
+      // counted above, so the budget is still consumed. Don't exhaust here —
+      // loop back to execute so the next run can determine if a fix is still
+      // needed, and if so, the budget check in analyze will gate further retries.
       await logger.error('fix', 'phase.error', state.fixAttemptsUsed, { message: (err as Error).message });
-      state = transition(state, 'exhausted', { ok: false, detail: { stage: 'fix', error: (err as Error).message } });
-      await persist();
-      return { finalPhase: 'exhausted', state };
     }
 
     await persist();

@@ -1,9 +1,0 @@
-{
-  "title": "get started link is visible on home",
-  "steps": [
-    "Navigate to /",
-    "Assert that the Get Started link is visible"
-  ],
-  "expected": "LoginPage.getStartedLink is visible on the home page",
-  "specFile": "src/tests/login.spec.ts"
-}

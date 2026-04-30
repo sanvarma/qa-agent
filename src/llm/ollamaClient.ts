@@ -65,6 +65,8 @@ interface OllamaChatResponse {
   };
   done: boolean;
   done_reason?: string;
+  prompt_eval_count?: number;  // input tokens
+  eval_count?: number;         // output tokens
 }
 
 export interface OllamaClientOptions {
@@ -129,6 +131,10 @@ export class OllamaClient implements LLMClient {
       text: json.message.content || undefined,
       toolCalls,
       stopReason,
+      usage: {
+        inputTokens: json.prompt_eval_count ?? 0,
+        outputTokens: json.eval_count ?? 0,
+      },
     };
   }
 

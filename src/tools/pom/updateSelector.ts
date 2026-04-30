@@ -31,8 +31,8 @@ export const pomUpdateSelectorTool: Tool<Input, Output> = {
   name: 'pom.updateSelector',
   description:
     'Update the selector string of a field-initializer selector on a page-object class. ' +
-    'Supported shape: `name = this.page.<call>(\'selector\')` where <call> is one of ' +
-    'locator/getByTestId/getByText/getByLabel/getByPlaceholder/getByAltText/getByTitle. ' +
+    'Supported shape: `name = this.page.<call>(\'selector\')` or `name = this.loc(\'selector\')` where <call> is one of ' +
+    'locator/loc/getByTestId/getByText/getByLabel/getByPlaceholder/getByAltText/getByTitle. ' +
     'Refuses getByRole and chained locators. Preserves call type; replaces only the first string arg.',
   inputSchema: Input,
   jsonSchema: {
@@ -82,7 +82,7 @@ export const pomUpdateSelectorTool: Tool<Input, Output> = {
       case 'not_a_selector_field':
         throw new Error(
           `'${input.name}' is not a selector field: ${find.reason}. ` +
-            `Expected shape: \`${input.name} = this.page.locator('...')\`.`,
+            `Expected shape: \`${input.name} = this.page.locator('...')\` or \`${input.name} = this.loc('...')\`.`,
         );
       case 'chained_selectors':
         throw new Error(
@@ -97,7 +97,7 @@ export const pomUpdateSelectorTool: Tool<Input, Output> = {
       case 'unsupported_call':
         throw new Error(
           `'${input.name}' uses unsupported locator call '${find.callName}'. ` +
-            `Supported: locator, getByTestId, getByText, getByLabel, getByPlaceholder, getByAltText, getByTitle.`,
+            `Supported: locator, loc, getByTestId, getByText, getByLabel, getByPlaceholder, getByAltText, getByTitle.`,
         );
       case 'non_string_selector':
         throw new Error(

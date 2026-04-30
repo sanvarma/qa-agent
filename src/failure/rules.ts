@@ -109,6 +109,30 @@ function baseTarget(f: NormalizedFailure, locator?: string): FixTarget {
 // Order matters: first match wins. More specific rules go first.
 
 export const rules: Rule[] = [
+  // Invalid CSS selector — usually caused by pasting ARIA/snapshot notation
+  // (e.g. 'textbox "Search Product"') directly as a CSS selector.
+  {
+    id: 'rule.selector.invalid_css',
+    match({ haystack, failure }) {
+      if (!/unexpected token.*while parsing css selector|did you mean to css\.escape/i.test(haystack)) return null;
+      const locator = extractLocator(haystack);
+      return {
+        kind: 'selector',
+        confidence: CONFIDENCE.HIGH,
+        action: kindToAction('selector'),
+        cause: locator
+          ? `Selector '${locator}' is not valid CSS — likely copied from an accessibility snapshot.`
+          : 'A selector contains invalid CSS syntax.',
+        reasoning:
+          'The selector failed CSS parsing. Selectors from browse snapshots use ARIA notation ' +
+          '(e.g. \'textbox "Search Product"\') which is not valid CSS. ' +
+          'Fix: convert to a real CSS selector such as \'input[placeholder="Search Product"]\' or \'#search-input\'.',
+        fixTarget: baseTarget(failure, locator),
+        matchedRule: 'rule.selector.invalid_css',
+      };
+    },
+  },
+
   // Selector not found / not visible — the classic "element missing" failure.
   // This is specifically about *the element not existing or not being visible*,
   // which points at the POM selector.
@@ -141,7 +165,7 @@ export const rules: Rule[] = [
     id: 'rule.selector.timeout',
     match({ haystackLower, haystack, failure }) {
       const isTimeout =
-        /timeout\s+\d+\s*ms\s+exceeded|timed out \d+\s*ms waiting|timeout:\s*\d+\s*ms|element\(s\) not found|with timeout \d+\s*ms/.test(haystackLower);
+        /timeout(?:\s+of)?\s+\d+\s*ms\s+exceeded|timed out \d+\s*ms waiting|timeout:\s*\d+\s*ms|element\(s\) not found|with timeout \d+\s*ms/.test(haystackLower);
       const isLocatorScoped =
         /waiting for (locator|selector)|locator\.(click|fill|waitfor|istype|type|check|hover)/.test(
           haystackLower,

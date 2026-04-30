@@ -53,6 +53,7 @@ export interface FixAttempt {
 export interface OrchestratorState {
   phase: Phase;
   fixAttemptsUsed: number;   // how many fix cycles have run so far
+  retryAttemptsUsed: number; // how many classifier 'retry' loops have run so far
 
   // Carry-through across phases.
   lastExecution?: ExecutionOutcome;
@@ -101,6 +102,7 @@ export function initialState(runId: string): OrchestratorState {
   return {
     phase: 'init',
     fixAttemptsUsed: 0,
+    retryAttemptsUsed: 0,
     fixHistory: [],
     attempts: [],
     runId,
