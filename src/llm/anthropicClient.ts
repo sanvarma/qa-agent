@@ -116,7 +116,7 @@ function translateHistory(history: Turn[]): Anthropic.MessageParam[] {
     const content: Anthropic.ContentBlock[] = [];
 
     if (a.text) {
-      content.push({ type: 'text', text: a.text });
+      content.push({ type: 'text', text: a.text } as Anthropic.ContentBlock);
     }
 
     for (const tc of a.toolCalls) {
@@ -125,7 +125,7 @@ function translateHistory(history: Turn[]): Anthropic.MessageParam[] {
         id: tc.id,
         name: encodeToolName(tc.name),
         input: tc.input as Record<string, unknown>,
-      });
+      } as Anthropic.ContentBlock);
     }
 
     if (content.length > 0) {

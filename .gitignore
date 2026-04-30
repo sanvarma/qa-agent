@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist/agent/
 
 # Agent run logs written by ConversationLog
 runs/
@@ -13,3 +14,4 @@ Thumbs.db
 .vscode/
 .idea/
 /.playwright-mcp
+

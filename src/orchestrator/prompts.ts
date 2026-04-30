@@ -17,6 +17,8 @@ function buildGenerateSystem(browse?: BrowseCreds): string {
 Your job: translate a structured test case into a Playwright test that ACTUALLY exercises the assertion described in 'Expected'.
 
 Available tools:
+  - pages.getStructure: returns the full inventory of page-object files under src/pages/, grouped by subdirectory. The "locales" key maps each locale code to its override files. Call this ONCE before the companion locale check (step 9) to know exactly which locales exist — never guess locale names.
+  - testData.getSchema: returns the exact field names for a testData dataset (e.g. 'users'). Call this BEFORE writing any test that uses testData — never guess field names like 'email' or 'name'.
   - fs.read: read any file in the repo to understand existing POMs and conventions
   - test.createSpec: create a new spec file (refuses if file exists)
   - test.addCase: add a test to an existing spec file (refuses on duplicate title)
@@ -106,7 +108,7 @@ The test case carries a 'Locale scope' field:
   - HARD RULE: NEVER call browse.snapshot after browse.navigate. They return the same data. browse.snapshot is only for re-checking a page you are ALREADY on without navigating again.
   - HARD RULE: NEVER call browse.click to navigate between pages. Use browse.navigate directly to each target URL. Reserve browse.click only for interactions that genuinely cannot be done with a direct URL (e.g. opening a modal on the current page). If browse.click fails to navigate, recover by calling browse.navigate once to the target URL — do NOT retry the click.
   - STRICT RULE: Each URL must be visited at most once. Once you receive a snapshot for a URL, that page is done — never call browse.navigate for the same URL again in the same session.
-  - NEVER use browse.* tools to inspect the file system or check for locale overrides. For locale checks, use fs.read on specific POM file paths (e.g. src/pages/locales/es-pr/ProductsPage.ts). A file-not-found error means no override exists.
+  - NEVER use browse.* tools to inspect the file system or check for locale overrides. For locale checks, call pages.getStructure first to get the real list of locales and override files — then only fs.read the files that are listed in the result. NEVER guess locale names or attempt to read a file that was not returned by pages.getStructure.
   - ARIA vs CSS: browse snapshots use ARIA notation like 'textbox "Search Product"' or 'button "Submit"'.
     These are NOT valid CSS selectors. Always convert to real CSS: 'input[placeholder="Search Product"]',
     '#search-input', '[data-testid="search"]', etc. Never pass snapshot ARIA strings to this.loc() or pom.addSelector.
@@ -132,9 +134,12 @@ The test case carries a 'Locale scope' field:
       ]);
       expect(download.suggestedFilename()).toMatch(/invoice/i);
     This is the ONLY place where inline page API usage in the test body is allowed.
-  - testData fixture: when a test requires a registered user account (login credentials, user details), use the testData fixture:
-      const user = await testData<{ email: string; password: string }>('users');
-    Then use user.email and user.password. Add 'testData' to the fixtures array when calling test.addCase.
+  - testData fixture: when a test requires a registered user account (login credentials, user details), use the testData fixture.
+    BEFORE writing the test body, call testData.getSchema('users') (or the relevant key) to get the exact field names.
+    NEVER guess field names like 'email', 'name', 'username' — always use the fields returned by testData.getSchema.
+    Usage pattern (field names filled in from testData.getSchema result):
+      const user = await testData<{ <field1>: string; <field2>: string }>('<key>');
+    Add 'testData' to the fixtures array when calling test.addCase.
   - Always ensure imports exist via ast.addImport before referencing a symbol.
   - Stop as soon as all required spec files are written. DO NOT run the test — execution happens outside this phase.
   - Batch independent tool calls into a single response — read the spec file AND the POM in the same turn, not one after the other. Every unnecessary round-trip wastes a step.
@@ -245,15 +250,15 @@ export function generateTask(tc: TestCase, defaultSpecFile: string, baseUrl?: st
   const companionStep = isGeneric
     ? [
         `  9. Companion locale specs (generic tests only — only after test.addCase has succeeded):`,
-        `     For each known locale (check by trying fs.read on specific POM paths, NOT on the directory):`,
-        `       a. fs.read src/pages/locales/<locale>/<Page>.ts for every POM the test references.`,
-        `          A file-not-found error simply means no override exists for that locale — skip it.`,
-        `       b. If the override changes selectors or methods that this test exercises,`,
-        `          scaffold a companion spec at tests/locales/<locale>/<same-filename> using`,
-        `          test.createSpec, add test.describe.configure({ mode: 'serial' }) at the top,`,
-        `          then use test.addCase to write a test that targets the locale-specific behaviour.`,
-        `          Import { test, expect } from src/fixtures/pages.fixture.ts as usual.`,
-        `       c. If the locale has no override for the POMs this test uses, skip it.`,
+        `       a. Call pages.getStructure ONCE to get the real list of locales and their override files.`,
+        `          If pages.getStructure returns an empty "locales" object, there are no locale overrides — skip to step 10.`,
+        `       b. For each locale returned by pages.getStructure that has at least one override file:`,
+        `          - fs.read src/pages/locales/<locale>/<Page>.ts ONLY for POMs that appear in that locale's file list.`,
+        `            Do NOT attempt to read a POM that is not listed — it does not exist.`,
+        `          - If the override changes selectors or methods that this test exercises,`,
+        `            scaffold a companion spec at tests/locales/<locale>/<same-filename> using`,
+        `            test.createSpec (with serial:true), then use test.addCase to write the locale-specific test.`,
+        `          - If none of the locale's overrides affect this test, skip that locale entirely.`,
         `  10. Stop.`,
       ]
     : [
