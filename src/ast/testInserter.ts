@@ -126,6 +126,76 @@ function findTopLevelDescribe(sf: SourceFile, title: string): DescribeMatch[] {
   return matches;
 }
 
+/** Return ALL top-level describe blocks, in source order. */
+function findAllTopLevelDescribes(sf: SourceFile): DescribeMatch[] {
+  const all: DescribeMatch[] = [];
+  for (const stmt of sf.getStatements()) {
+    if (!Node.isExpressionStatement(stmt)) continue;
+    const expr = stmt.getExpression();
+    if (!Node.isCallExpression(expr)) continue;
+    const { kind } = classifyTopLevelCall(expr);
+    if (kind !== 'describe') continue;
+    const args = expr.getArguments();
+    for (let i = args.length - 1; i >= 0; i--) {
+      const a = args[i];
+      if (Node.isArrowFunction(a) || Node.isFunctionExpression(a)) {
+        const body = a.getBody();
+        if (Node.isBlock(body)) all.push({ call: expr, block: body });
+        break;
+      }
+    }
+  }
+  return all;
+}
+
+/** Derive a describe block name from a spec file path. e.g. "auth.spec.ts" → "Auth" */
+function deriveDescribeName(filePath: string): string {
+  const basename = filePath.split(/[\\/]/).pop() ?? 'Tests';
+  const name = basename.replace(/\.(spec|test)\.(ts|js|tsx|jsx)$/, '').replace(/\.(ts|js|tsx|jsx)$/, '');
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+/**
+ * Create an empty top-level describe block at the end of the file and return
+ * its body Block so the caller can insert statements into it.
+ */
+function createTopLevelDescribe(sf: SourceFile, title: string): Block {
+  const safe = title.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  const statements = sf.getStatements();
+  sf.insertStatements(statements.length, `\ntest.describe('${safe}', () => {\n});`);
+  // Re-scan to find the newly created block (use last match in case title already existed).
+  const matches = findTopLevelDescribe(sf, title);
+  if (matches.length === 0) {
+    throw new Error(`Internal error: could not locate created describe('${title}')`);
+  }
+  return matches[matches.length - 1].block;
+}
+
+/**
+ * Resolve (or auto-create) the Block to insert into:
+ * - Explicit describe name → find it; create if absent.
+ * - No describe name → use the last existing describe; create from filename if none.
+ * Tests are ALWAYS inserted inside a describe block.
+ */
+function resolveScope(sf: SourceFile, describeName?: string): Block {
+  if (describeName !== undefined) {
+    const matches = findTopLevelDescribe(sf, describeName);
+    if (matches.length === 0) return createTopLevelDescribe(sf, describeName);
+    if (matches.length > 1) {
+      throw new InsertError(
+        'describe_ambiguous',
+        `multiple top-level describes with title '${describeName}' — cannot disambiguate`,
+      );
+    }
+    return matches[0].block;
+  }
+
+  // Auto-detect: use the last existing describe, or create one from the filename.
+  const all = findAllTopLevelDescribes(sf);
+  if (all.length > 0) return all[all.length - 1].block;
+  return createTopLevelDescribe(sf, deriveDescribeName(sf.getFilePath()));
+}
+
 // -- Duplicate detection within a scope -------------------------------------
 
 /**
@@ -219,29 +289,10 @@ function renderTestStatement(title: string, body: string, fixtures: string[] = [
 // -- Public API -------------------------------------------------------------
 
 export function insertTestCase(sf: SourceFile, args: InsertArgs): InsertResult {
-  // Resolve target scope.
-  let scope: SourceFile | Block;
-  if (args.describe) {
-    const describes = findTopLevelDescribe(sf, args.describe);
-    if (describes.length === 0) {
-      throw new InsertError(
-        'describe_not_found',
-        `top-level describe '${args.describe}' not found in file`,
-      );
-    }
-    if (describes.length > 1) {
-      throw new InsertError(
-        'describe_ambiguous',
-        `multiple top-level describes with title '${args.describe}' — cannot disambiguate`,
-      );
-    }
-    scope = describes[0].block;
-  } else {
-    scope = sf;
-  }
+  // Always resolve to a describe block — create one if needed.
+  const scope = resolveScope(sf, args.describe);
 
-  // File-wide duplicate detection — same title must not exist anywhere in the file,
-  // regardless of whether it is at top level or inside a describe block.
+  // File-wide duplicate detection — same title must not exist anywhere in the file.
   const fileWide = collectAllTestTitles(sf);
   if (fileWide.has(args.title)) {
     throw new InsertError(
@@ -252,14 +303,10 @@ export function insertTestCase(sf: SourceFile, args: InsertArgs): InsertResult {
 
   // Render and insert.
   const text = renderTestStatement(args.title, args.body, args.fixtures);
-
-  // Both SourceFile and Block expose getStatements / insertStatements via
-  // ts-morph's StatementedNode. Compute the index and insert uniformly.
   const statements = scope.getStatements();
   const index = args.position === 'start' ? 0 : statements.length;
   const inserted = scope.insertStatements(index, text);
 
-  // insertStatements returns an array; the new test is the single inserted statement.
   const first = inserted[0];
   return {
     startLine: first.getStartLineNumber(),

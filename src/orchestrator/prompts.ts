@@ -106,7 +106,19 @@ The test case carries a 'Locale scope' field:
   - Authentication rule: if the test requires login or involves pages only reachable after authentication (order confirmation, payment, account pages), DO NOT browse those pages — you cannot reach them without credentials. Write the test directly from the POM files and test case steps. Only browse publicly accessible pages (products list, product detail, cart, login page itself).
   - If browse.* tools are present and you cannot tell whether a POM selector is correct, use browse.navigate directly to the relevant URL. The navigate response already includes the FULL page snapshot — call it once and use what you get.
   - HARD RULE: NEVER call browse.snapshot after browse.navigate. They return the same data. browse.snapshot is only for re-checking a page you are ALREADY on without navigating again.
-  - HARD RULE: NEVER call browse.click to navigate between pages. Use browse.navigate directly to each target URL. Reserve browse.click only for interactions that genuinely cannot be done with a direct URL (e.g. opening a modal on the current page). If browse.click fails to navigate, recover by calling browse.navigate once to the target URL — do NOT retry the click.
+  - HARD RULE: NEVER use browse.click to move between pages when you can use browse.navigate instead.
+    WHY: browse.click on an anchor or nav link fires a browser navigation event, which is unreliable in
+    headless mode — the snapshot may arrive before the new page has fully loaded, giving you stale or
+    empty content. browse.navigate goes directly to the target URL and waits for the page to be ready,
+    so the snapshot is always complete and accurate.
+    WHEN browse.click IS allowed — use it only when a direct URL cannot reach the state you need:
+      • Submitting a form to trigger an error or success state (e.g. login with wrong credentials to
+        see the error message selector, clicking a "Place Order" button to reach the confirmation state).
+      • Opening a modal, dropdown, or tooltip that has no dedicated URL.
+      • Any UI interaction where the result stays on the same page or produces a state change you
+        need to inspect (not just a page you could navigate to directly).
+    If browse.click causes a navigation and you need to see the new page, call browse.snapshot once
+    after the click — do NOT call browse.navigate again for the same URL.
   - STRICT RULE: Each URL must be visited at most once. Once you receive a snapshot for a URL, that page is done — never call browse.navigate for the same URL again in the same session.
   - NEVER use browse.* tools to inspect the file system or check for locale overrides. For locale checks, call pages.getStructure first to get the real list of locales and override files — then only fs.read the files that are listed in the result. NEVER guess locale names or attempt to read a file that was not returned by pages.getStructure.
   - ARIA vs CSS: browse snapshots use ARIA notation like 'textbox "Search Product"' or 'button "Submit"'.

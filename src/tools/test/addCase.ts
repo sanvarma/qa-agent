@@ -31,8 +31,9 @@ export const testAddCaseTool: Tool<Input, Output> = {
     'Pass fixtures[] with the page-object fixture names the test needs (e.g. ["productsPage", "productDetailPage"]) — ' +
     'they will be destructured from the test function args automatically: async ({ page, productsPage, productDetailPage }) => { ... }. ' +
     'page is always included. Do NOT import fixture names at module level — they are injected by Playwright. ' +
-    'If a describe is provided, inserts inside that top-level describe; otherwise at top level. ' +
-    'Refuses if a test with the same title already exists in the target scope. ' +
+    'Tests are ALWAYS inserted inside a describe block. If describe is provided, it is used (created if absent). ' +
+    'If describe is omitted, the tool uses the existing describe block in the file; if none exists, it creates one named after the spec file. ' +
+    'Refuses if a test with the same title already exists anywhere in the file. ' +
     'Does NOT create the spec file — use test.createSpec for that.',
   inputSchema: Input,
   jsonSchema: {
