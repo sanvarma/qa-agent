@@ -20,7 +20,7 @@ import { pomCreatePageTool } from '../tools/pom/createPage.js';
 import { pomAddSelectorTool } from '../tools/pom/addSelector.js';
 import { fixtureAddPageTool } from '../tools/fixture/addPage.js';
 import { astAddImportTool } from '../tools/ast/addImport.js';
-import { pagesGetStructureTool } from '../tools/pages/getStructure.js';
+import { frameworkGetGraphTool } from '../tools/framework/getGraph.js';
 import { testDataGetSchemaTool } from '../tools/testdata/getSchema.js';
 
 // MCP-backed tools (browse.*). Started lazily only when cfg.browse is set.
@@ -79,7 +79,7 @@ export interface OrchestratorResult {
 function buildGenerateRegistry(extras: AnyTool[] = []): ToolRegistry {
   const reg = new ToolRegistry();
   reg.register(fsReadTool);
-  reg.register(pagesGetStructureTool);
+  reg.register(frameworkGetGraphTool);
   reg.register(testDataGetSchemaTool);
   reg.register(testCreateSpecTool);
   reg.register(testAddCaseTool);

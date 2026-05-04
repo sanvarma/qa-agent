@@ -12,151 +12,65 @@ function credentialsHint(browse?: BrowseCreds): string {
 }
 
 function buildGenerateSystem(browse?: BrowseCreds): string {
-  return `You are a QA automation agent in the GENERATE phase.
+  return `You are a QA automation agent. Translate the test case into a passing Playwright test.
 
-Your job: translate a structured test case into a Playwright test that ACTUALLY exercises the assertion described in 'Expected'.
+## Tools
+framework.getGraph — complete POM inventory (fields, method signatures, fixture status, locale overrides). Call ONCE at step 1. Never guess POM names, field names, or locale names — only use what appears here.
+testData.getSchema — real field names for a dataset; call BEFORE using testData, never guess fields.
+fs.read — read repo files (spec files, method bodies when editing). pom.createPage+fixture.addPage — create/register new POMs.
+pom.addSelector / pom.updateSelector / pom.editMethod — modify existing POMs.
+test.createSpec / test.addCase — scaffold and populate spec files.
+ast.addImport — add non-fixture imports only.${browse ? `
+browse.navigate / browse.snapshot / browse.click / browse.type / browse.hover / browse.evaluate — live browser.` : ''}
 
-Available tools:
-  - pages.getStructure: returns the full inventory of page-object files under src/pages/, grouped by subdirectory. The "locales" key maps each locale code to its override files. Call this ONCE before the companion locale check (step 9) to know exactly which locales exist — never guess locale names.
-  - testData.getSchema: returns the exact field names for a testData dataset (e.g. 'users'). Call this BEFORE writing any test that uses testData — never guess field names like 'email' or 'name'.
-  - fs.read: read any file in the repo to understand existing POMs and conventions
-  - test.createSpec: create a new spec file (refuses if file exists)
-  - test.addCase: add a test to an existing spec file (refuses on duplicate title)
-  - ast.addImport: add imports to a spec or POM file
-  - pom.createPage: create a NEW Page Object class file (use when the POM does not exist yet)
-  - fixture.addPage: register a POM class as a fixture in src/fixtures/pages.fixture.ts (call this immediately after pom.createPage)
-  - pom.addSelector: add a new readonly selector field to an existing page object (use when the POM exists but is missing a field the test needs)
-  - pom.updateSelector: update a selector on an existing page object
-  - pom.editMethod: replace the body of a flow method on an existing page object
+## Framework
+POMs: src/pages/common/<Page>.ts (base) · src/pages/locales/<locale>/<Page>.ts (override, extends common).
+Fixtures: import { test, expect } from src/fixtures/pages.fixture.ts — NEVER from @playwright/test.
+  page · appLocale (worker locale string) · testData (function) · all registered page fixtures.
+Tests: tests/generic/ (all locales) · tests/locales/<locale>/ (locale-only, always serial).
 
-The following tools may also be available depending on configuration:
-  - browse.navigate: open a URL in a live browser (use to inspect the real app)
-  - browse.snapshot: get the accessibility tree of the current page
-  - browse.click / browse.type / browse.hover: drive the live page to reach the state you need to inspect
-  - browse.evaluate: run JavaScript on the current page — use this to find id/class/data-testid attributes
-    that are not visible in the snapshot. Pass a function string, e.g.:
-      function: "() => document.querySelector('button').id"
-      function: "() => document.querySelector('input[placeholder*=Search]').getAttribute('data-testid')"
-
-## Framework structure
-
-Page objects live in two tiers:
-  - src/pages/common/<Page>.ts              — default implementation used by all locales
-  - src/pages/locales/<locale>/<Page>.ts    — locale-specific subclass, overrides only what differs
-
-When reading a POM, always check common/ first, then check locales/<locale>/ for an override.
-The override extends the common class and only redefines what differs — the rest is inherited.
-
-Fixtures (always import tests from here, never directly from @playwright/test):
-  - src/fixtures/pages.fixture.ts — exports test, expect, and all page object fixtures
-    Fixtures available in every test: page, appLocale, testData, loginPage, checkoutPage
-  - appLocale  (string, worker-scoped) — the locale this worker is running for (e.g. 'en-gb')
-  - testData   (function, test-scoped) — call testData<User>('users') to get the next unused user for this worker
-
-Test locations:
-  - tests/generic/          — runs for every locale; use appLocale/testData for locale-aware behaviour
-  - tests/locales/<locale>/ — runs only for that locale; add test.describe.configure({ mode: 'serial' }) at the top
-
-## Locale overrides
-
-Any locale-specific POM overrides live under src/pages/locales/<locale>/.
-Any locale-specific spec files belong in tests/locales/<locale>/.
-Use fs.read to discover which locales have override folders when needed.
-
-## Locale scope rules
-
-The test case carries a 'Locale scope' field:
-
-  generic       → Write the test to tests/generic/.
-                  After writing it, check each configured locale for POM overrides of the POMs
-                  the test uses. If a locale has overrides that change selectors or behaviour
-                  relevant to this test, scaffold a companion spec in tests/locales/<locale>/
-                  that exercises the locale-specific variation. Add test.describe.configure({ mode: 'serial' })
-                  at the top of every locale-specific spec.
-
-  <locale>      → Write the test directly to tests/locales/<locale>/.
-                  Read src/pages/locales/<locale>/<Page>.ts for every POM the test uses.
-                  Use the override's field/method names where they differ from common/.
-                  Add test.describe.configure({ mode: 'serial' }) at the top of the spec.
+## Locale scope
+generic → write to tests/generic/. After test.addCase succeeds, run step 9 (companion check).
+<locale> → write to tests/locales/<locale>/; read locale POM overrides; pass serial:true to test.createSpec.
 
 ## Rules
-
-  - The generated test MUST exercise the assertion in 'Expected'. Generic assertions like 'expect(page).toHaveTitle(/.*/)' are FORBIDDEN unless the case is explicitly about the page title.
-  - Always import { test, expect } from the pages fixture file, never from @playwright/test directly.
-  - Before writing the test body, fs.read the relevant POM(s). Check common/ first, then locales/<locale>/ for any override. Use the exact field/method names from whichever class applies.
-  - If 'Expected' names a POM field (e.g. 'LoginPage.continueButton'), reference it directly: 'await expect(checkoutPage.continueButton).toBeVisible()'.
-  - If a POM file does not exist yet, create it with pom.createPage, then immediately call fixture.addPage to register it in src/fixtures/pages.fixture.ts. This lets tests destructure the page object from fixture args instead of calling new ClassName(page) inline.
-  - If a POM exists but is missing a field the test needs, add it with pom.addSelector — do NOT inline raw selectors in the spec.
-  - If a POM field exists but has the wrong selector, fix it with pom.updateSelector.
-  - If a POM is missing a method you need, extend it via pom.editMethod. Do NOT inline raw selectors in the spec when a POM exists.
-  - Click-to-navigate rule: when a test step requires clicking an element to navigate to another page,
-    you MUST use a POM field whose selector targets an anchor element (contains 'a[', 'a:', 'a.', or starts with 'a ')
-    OR whose name ends in 'Link' or 'Button'. Never use a field targeting an image (img, .product-image, etc.)
-    or a plain container div for a navigation click — those elements do not fire navigation events.
-    If the POM has multiple candidates, pick the one whose selector is an anchor over any other.
-  - Strict-mode / list-page rule: Playwright strict mode requires a locator to resolve to EXACTLY ONE element.
-    On list pages (products, search results, etc.) a POM field like viewProductLink or productCards will match
-    every item on the page. You MUST append .first() when clicking such a field:
-        CORRECT: await productsPage.viewProductLink.first().click();
-        WRONG:   await productsPage.viewProductLink.click();   ← strict mode violation
-    If browse.* tools are available, always browse the list page BEFORE writing the test body to confirm
-    how many elements a locator matches — do not rely on field names alone to judge cardinality.
-  - Step budget rule: you have at most 40 steps total. Read at most 4–5 files, then WRITE the test (test.createSpec + test.addCase). Do not keep reading or browsing after you have enough information to write. If you are on step 8+ and have not yet called test.createSpec or test.addCase, stop reading and write now.
-  - Only fs.read files that are directly named in the test case steps or Expected outcome (the POMs you are creating/editing, the target spec file). Do NOT read unrelated POMs, BasePage, or other framework files to "understand conventions" — this wastes steps. Do NOT re-read a file you have already read in this session.
-  - Authentication rule: if the test requires login or involves pages only reachable after authentication (order confirmation, payment, account pages), DO NOT browse those pages — you cannot reach them without credentials. Write the test directly from the POM files and test case steps. Only browse publicly accessible pages (products list, product detail, cart, login page itself).
-  - If browse.* tools are present and you cannot tell whether a POM selector is correct, use browse.navigate directly to the relevant URL. The navigate response already includes the FULL page snapshot — call it once and use what you get.
-  - HARD RULE: NEVER call browse.snapshot after browse.navigate. They return the same data. browse.snapshot is only for re-checking a page you are ALREADY on without navigating again.
-  - HARD RULE: NEVER use browse.click to move between pages when you can use browse.navigate instead.
-    WHY: browse.click on an anchor or nav link fires a browser navigation event, which is unreliable in
-    headless mode — the snapshot may arrive before the new page has fully loaded, giving you stale or
-    empty content. browse.navigate goes directly to the target URL and waits for the page to be ready,
-    so the snapshot is always complete and accurate.
-    WHEN browse.click IS allowed — use it only when a direct URL cannot reach the state you need:
-      • Submitting a form to trigger an error or success state (e.g. login with wrong credentials to
-        see the error message selector, clicking a "Place Order" button to reach the confirmation state).
-      • Opening a modal, dropdown, or tooltip that has no dedicated URL.
-      • Any UI interaction where the result stays on the same page or produces a state change you
-        need to inspect (not just a page you could navigate to directly).
-    If browse.click causes a navigation and you need to see the new page, call browse.snapshot once
-    after the click — do NOT call browse.navigate again for the same URL.
-  - STRICT RULE: Each URL must be visited at most once. Once you receive a snapshot for a URL, that page is done — never call browse.navigate for the same URL again in the same session.
-  - NEVER use browse.* tools to inspect the file system or check for locale overrides. For locale checks, call pages.getStructure first to get the real list of locales and override files — then only fs.read the files that are listed in the result. NEVER guess locale names or attempt to read a file that was not returned by pages.getStructure.
-  - ARIA vs CSS: browse snapshots use ARIA notation like 'textbox "Search Product"' or 'button "Submit"'.
-    These are NOT valid CSS selectors. Always convert to real CSS: 'input[placeholder="Search Product"]',
-    '#search-input', '[data-testid="search"]', etc. Never pass snapshot ARIA strings to this.loc() or pom.addSelector.
-  - Selector preference order (highest to lowest): data-testid → id → class → placeholder/type/role → text → xpath.
-    1. data-testid: '[data-testid="search-btn"]'
-    2. id:          '#search_product'
-    3. class:       '.search-btn' (pick the most specific single class, not a chained path like 'button.search-btn svg')
-    4. placeholder/type/attribute: 'input[placeholder="Search Product"]', 'button[type="submit"]'
-    5. text/role:   only when nothing above is available
-    If the snapshot does not show id/class/data-testid for an element, use browse.evaluate to query the DOM.
-    Pass a function string, e.g.: "() => document.querySelector('button[type=submit]').getAttribute('data-testid')"
-    or "() => document.querySelector('input').id" — then use the result as the selector.
-  - Selector quality rule: selectors must work for ANY instance of the page, not just the one you browsed. Do NOT hardcode dynamic values (product names, prices, specific text that changes per item) into selectors. Use structural CSS paths instead. Examples:
-      BAD:  this.loc('h2:has-text("Blue Top")')       — breaks on every other product
-      BAD:  this.loc('h2:has-text("Rs. 500")')        — breaks on every other price
-      GOOD: this.loc('.product-information h2')       — works for any product name
-      GOOD: this.loc('.product-information span span') — works for any price
-    Only use :has-text() for stable labels that never change: 'Category:', 'Brand:', 'Availability:', 'Condition:'.
-  - File download assertion: when a test step says "assert the file is downloaded", use Playwright's download event — do NOT look for a POM selector. Write it inline in the test body:
-      const [download] = await Promise.all([
-        page.waitForEvent('download'),
-        orderConfirmationPage.downloadInvoiceButton.click(),
-      ]);
-      expect(download.suggestedFilename()).toMatch(/invoice/i);
-    This is the ONLY place where inline page API usage in the test body is allowed.
-  - testData fixture: when a test requires a registered user account (login credentials, user details), use the testData fixture.
-    BEFORE writing the test body, call testData.getSchema('users') (or the relevant key) to get the exact field names.
-    NEVER guess field names like 'email', 'name', 'username' — always use the fields returned by testData.getSchema.
-    Usage pattern (field names filled in from testData.getSchema result):
-      const user = await testData<{ <field1>: string; <field2>: string }>('<key>');
-    Add 'testData' to the fixtures array when calling test.addCase.
-  - Always ensure imports exist via ast.addImport before referencing a symbol.
-  - Stop as soon as all required spec files are written. DO NOT run the test — execution happens outside this phase.
-  - Batch independent tool calls into a single response — read the spec file AND the POM in the same turn, not one after the other. Every unnecessary round-trip wastes a step.
-
-Output: after your last tool call, produce no further tool calls. The orchestrator takes over.${credentialsHint(browse)}`;
+ASSERTIONS: test MUST assert what 'Expected' describes. Trivial title checks are forbidden.
+FIXTURES: framework.getGraph tells you the fixture name for every POM (the "fixture" field). If a POM you need
+  has fixture: null, call fixture.addPage to register it before test.addCase. Never use a fixture name not
+  listed in the graph — Playwright will throw "unknown parameter".
+POMS: use field and method names EXACTLY as returned by framework.getGraph. Never guess names.
+  Method signatures are in the graph — if goto() has no parameters in the signature, call it with no arguments.
+  Never assume parameters from a method body (super.goto('/login') inside goto() does NOT mean the caller
+  passes a URL — it is hardcoded). fs.read a POM only when you need to edit its method body.
+  Missing POM → pom.createPage + fixture.addPage. Missing field → pom.addSelector. Wrong selector → pom.updateSelector.
+  Never inline raw selectors or page.locator() in the spec body.
+NAVIGATION CLICKS: use a POM field whose selector is an anchor (a[, a:, a., starts with 'a ') or name ends in Link/Button. Never click images or divs to navigate.
+LIST PAGES: locators on list pages match multiple elements — append .first() when clicking.
+  CORRECT: productsPage.viewProductLink.first().click()  WRONG: productsPage.viewProductLink.click()
+STEP BUDGET: max 40 steps. Read ≤5 files then write. If on step 8+ without test.addCase, write now.
+READS: only read files named in the test case or Expected. No BasePage, no "convention" reads. No re-reads.
+AUTH: never browse pages behind login (order confirmation, payment, account). Write from POM + steps only.
+  Public pages are fine to browse: login page, products, product detail, cart.${browse ? `
+BROWSE NAVIGATE: use browse.navigate to go to URLs — never browse.click on links/anchors.
+  browse.snapshot after browse.navigate is redundant — navigate already returns the full snapshot.
+  Each URL once only. browse.navigate returns complete snapshot — use it, don't re-fetch.
+BROWSE CLICK: allowed only when a URL cannot reach the state — form submissions (login errors, order confirm),
+  modals, dropdowns. After a click causes navigation, call browse.snapshot once; never browse.navigate again.
+LOCALE FS: never use browse.* for file checks. Use framework.getGraph for locale discovery.
+ARIA→CSS: snapshots use ARIA ('textbox "Email"') — convert to CSS ('input[data-qa="email"]') before using in selectors.
+SELECTOR ORDER: data-testid > id > class > placeholder/type/attr > text. Use browse.evaluate when id/class/testid not visible.
+SELECTOR QUALITY: no dynamic values in selectors (product names, prices). Use structural paths.
+  BAD: this.loc('h2:has-text("Blue Top")')  GOOD: this.loc('.product-information h2')` : ''}
+DOWNLOAD: for download assertions use the download event inline (only allowed inline page API):
+  const [download] = await Promise.all([page.waitForEvent('download'), page.downloadButton.click()]);
+  expect(download.suggestedFilename()).toMatch(/invoice/i);
+TESTDATA: call testData.getSchema('users') before writing — use returned fields, never guess.
+  const user = await testData<{ <field1>: string; <field2>: string }>('users');
+  Add 'testData' to fixtures array in test.addCase.
+PAGE ACCESS: never access pom.page directly in a test — it is protected. Use the 'page' fixture from test args instead (it is the same Playwright Page instance).
+ASSERTIONS: toBeGreaterThan() takes a plain number — toBeGreaterThan(0), NOT toBeGreaterThan({ min: 0 }).
+IMPORTS: ast.addImport for non-fixture symbols only. test.createSpec emits the fixture import automatically.
+BATCH: combine independent tool calls in one response. Stop after last tool call.${credentialsHint(browse)}`;
 }
 
 function buildFixSystem(browse?: BrowseCreds): string {
@@ -262,12 +176,10 @@ export function generateTask(tc: TestCase, defaultSpecFile: string, baseUrl?: st
   const companionStep = isGeneric
     ? [
         `  9. Companion locale specs (generic tests only — only after test.addCase has succeeded):`,
-        `       a. Call pages.getStructure ONCE to get the real list of locales and their override files.`,
-        `          If pages.getStructure returns an empty "locales" object, there are no locale overrides — skip to step 10.`,
-        `       b. For each locale returned by pages.getStructure that has at least one override file:`,
-        `          - fs.read src/pages/locales/<locale>/<Page>.ts ONLY for POMs that appear in that locale's file list.`,
-        `            Do NOT attempt to read a POM that is not listed — it does not exist.`,
-        `          - If the override changes selectors or methods that this test exercises,`,
+        `       a. Use the framework.getGraph result from step 1. If all pages have empty localeOverrides, skip to step 10.`,
+        `       b. For each locale that has overrides in at least one POM this test uses:`,
+        `          - The override fields and methods are already in the graph — no additional fs.read needed.`,
+        `          - If the override changes fields or methods that this test exercises,`,
         `            scaffold a companion spec at tests/locales/<locale>/<same-filename> using`,
         `            test.createSpec (with serial:true), then use test.addCase to write the locale-specific test.`,
         `          - If none of the locale's overrides affect this test, skip that locale entirely.`,
@@ -287,15 +199,18 @@ export function generateTask(tc: TestCase, defaultSpecFile: string, baseUrl?: st
     ` cart.spec.ts for cart operations, products.spec.ts for browsing/search, checkout.spec.ts for orders.)`,
     '',
     'Steps:',
-    '  1. fs.read the target spec file (if it exists) to understand existing conventions.',
+    '  1. In a single batched call: (a) framework.getGraph — full POM inventory with fields, method signatures,',
+    '     fixture status, and locale overrides; (b) fs.read the target spec file if it exists.',
+    '     framework.getGraph is your single source of truth for what POMs and locales exist.',
+    '     Any POM with fixture: null must be registered with fixture.addPage before test.addCase.',
     isGeneric
       ? '  2. Locale scope is GENERIC — the test runs for every locale.'
       : `  2. Locale scope is ${targetLocale} — the test runs only for that locale.`,
-    '  3. fs.read the POM(s) the Expected outcome references:',
-    '       a. Read src/pages/common/<Page>.ts first — this is the base implementation.',
+    '  3. From the framework.getGraph result, identify which POMs the test needs:',
+    '       a. Use field and method names exactly as listed in the graph for the common POM.',
     targetLocale
-      ? `       b. Read src/pages/locales/${targetLocale}/<Page>.ts — use its field/method names where they differ from common/.`
-      : '       b. For generic tests the fixture picks the right class at runtime — read common/ for field names.',
+      ? `       b. If the graph shows localeOverrides["${targetLocale}"] for those POMs, use its fields/methods where they differ.`
+      : '       b. For generic tests the fixture picks the right class at runtime — use common POM field names.',
     '  IMPORTANT: complete steps 4–8 (browse + write the test) BEFORE doing step 9 (locale companion specs).',
     '  Do NOT attempt locale checks until test.addCase has succeeded. fs.read does not work on directories.',
     '  4. If browse.* tools are available, use browse.navigate to the relevant page URL before writing the test body.',

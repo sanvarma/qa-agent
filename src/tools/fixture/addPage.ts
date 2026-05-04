@@ -5,7 +5,7 @@ import type { Tool, ToolContext } from '../tool.js';
 import { getProject, invalidateSourceFile } from '../../ast/project.js';
 import { addImport } from '../../ast/importEditor.js';
 import { unifiedDiff } from '../../ast/diff.js';
-import { SyntaxKind } from 'ts-morph';
+import { SyntaxKind, Node } from 'ts-morph';
 
 const FIXTURE_FILE = 'src/fixtures/pages.fixture.ts';
 
@@ -51,9 +51,9 @@ export const fixtureAddPageTool: Tool<Input, Output> = {
     const sf = project.createSourceFile(absFixture, beforeSource, { overwrite: true });
 
     // Check if fixture already registered (idempotent).
-    const typeAlias = sf.getTypeAlias('PageFixtures');
-    if (typeAlias) {
-      const typeLiteral = typeAlias.getTypeNode();
+    const existingAlias = sf.getTypeAlias('PageFixtures');
+    if (existingAlias) {
+      const typeLiteral = existingAlias.getTypeNode();
       if (typeLiteral && typeLiteral.getKind() === SyntaxKind.TypeLiteral) {
         const existing = typeLiteral.asKindOrThrow(SyntaxKind.TypeLiteral).getProperty(input.fixtureName);
         if (existing) {
@@ -77,34 +77,52 @@ export const fixtureAddPageTool: Tool<Input, Output> = {
 
     addImport(sf, { moduleSpecifier: rel, named: [input.className] });
 
-    // 2. Add to PageFixtures type.
-    if (typeAlias) {
-      const typeNode = typeAlias.getTypeNode();
-      if (typeNode && typeNode.getKind() !== SyntaxKind.TypeLiteral) {
-        // Replace non-literal type (e.g. Record<string, never>) with a proper object type.
-        typeAlias.setType(`{ ${input.fixtureName}: ${input.className} }`);
-      } else if (typeNode && typeNode.getKind() === SyntaxKind.TypeLiteral) {
-        typeNode.asKindOrThrow(SyntaxKind.TypeLiteral).addProperty({
-          name: input.fixtureName,
-          type: input.className,
-        });
+    // 2. Ensure PageFixtures type exists; add fixture property to it.
+    let typeAlias = sf.getTypeAlias('PageFixtures');
+    if (!typeAlias) {
+      // Insert after the last import statement.
+      const stmts = sf.getStatements();
+      let insertIdx = 0;
+      for (let i = 0; i < stmts.length; i++) {
+        if (Node.isImportDeclaration(stmts[i])) insertIdx = i + 1;
       }
+      sf.insertStatements(insertIdx, `\ntype PageFixtures = {};\n`);
+      typeAlias = sf.getTypeAlias('PageFixtures')!;
     }
 
-    // 3. Add fixture implementation to base.extend({...}).
-    const testVar = sf.getVariableDeclaration('test');
-    if (testVar) {
-      const initializer = testVar.getInitializer();
-      if (initializer && initializer.getKind() === SyntaxKind.CallExpression) {
-        const callExpr = initializer.asKindOrThrow(SyntaxKind.CallExpression);
-        const args = callExpr.getArguments();
-        if (args.length > 0 && args[0].getKind() === SyntaxKind.ObjectLiteralExpression) {
-          const obj = args[0].asKindOrThrow(SyntaxKind.ObjectLiteralExpression);
-          obj.addPropertyAssignment({
-            name: input.fixtureName,
-            initializer: `async ({ page }, use) => {\n    await use(new ${input.className}(page));\n  }`,
-          });
-        }
+    const typeNode = typeAlias.getTypeNode();
+    if (typeNode && typeNode.getKind() !== SyntaxKind.TypeLiteral) {
+      typeAlias.setType(`{ ${input.fixtureName}: ${input.className} }`);
+    } else if (typeNode && typeNode.getKind() === SyntaxKind.TypeLiteral) {
+      typeNode.asKindOrThrow(SyntaxKind.TypeLiteral).addProperty({
+        name: input.fixtureName,
+        type: input.className,
+      });
+    }
+
+    // 3. Ensure test.extend block exists; add fixture implementation to it.
+    let testVar = sf.getVariableDeclaration('test');
+    if (!testVar) {
+      // Insert before the first export declaration, or at end of file.
+      const stmts = sf.getStatements();
+      let insertIdx = stmts.length;
+      for (let i = 0; i < stmts.length; i++) {
+        if (Node.isExportDeclaration(stmts[i])) { insertIdx = i; break; }
+      }
+      sf.insertStatements(insertIdx, `\nexport const test = base.extend<PageFixtures>({});\n`);
+      testVar = sf.getVariableDeclaration('test')!;
+    }
+
+    const initializer = testVar.getInitializer();
+    if (initializer && initializer.getKind() === SyntaxKind.CallExpression) {
+      const callExpr = initializer.asKindOrThrow(SyntaxKind.CallExpression);
+      const args = callExpr.getArguments();
+      if (args.length > 0 && args[0].getKind() === SyntaxKind.ObjectLiteralExpression) {
+        const obj = args[0].asKindOrThrow(SyntaxKind.ObjectLiteralExpression);
+        obj.addPropertyAssignment({
+          name: input.fixtureName,
+          initializer: `async ({ page }, use) => {\n    await use(new ${input.className}(page));\n  }`,
+        });
       }
     }
 
