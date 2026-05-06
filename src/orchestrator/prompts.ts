@@ -49,24 +49,48 @@ POMS: use field and method names EXACTLY as returned by framework.getGraph. Neve
   Missing POM → pom.createPage (file MUST be src/pages/common/<ClassName>.ts — flat, NO subdirectories) + fixture.addPage.
   Missing field → pom.addSelector. Wrong selector → pom.updateSelector.
   Never inline raw selectors or page.locator() in the spec body.
+POM METHODS: When a test case step is a single named action (e.g. "Log in", "Add product to cart")
+  but requires 2+ sequential interactions on the same page, you MUST create a method on that POM.
+  The test body MUST call the method (e.g. await loginPage.login(user.username, user.password)) —
+  spelling out the individual fill/click steps inline in the test body is FORBIDDEN.
+  This restriction applies only to multi-step interaction sequences (fill + fill + click, etc.).
+  Assertions (expect statements) and single-field interactions are always written inline — this is correct.
+  — Use pom.editMethod to add the method (e.g. async login(username: string, password: string)).
+  — The method body uses this.fieldName references and awaits each interaction.
+  — Check framework.getGraph first — if a suitable method already exists on the POM, use it.
+  — TIMING: method creation must happen as soon as the POM is confirmed to need it — not deferred.
+    • For existing POMs (already in the graph): at step 3, check each POM the test needs. If a
+      multi-step action is required and no suitable method exists in the graph, call pom.editMethod
+      immediately — before any browse.navigate or pom.createPage calls.
+    • For new POMs (created via pom.createPage): call pom.editMethod immediately after pom.createPage
+      in the same batch, before fixture.addPage.
+    In both cases: do NOT defer method creation to after all POMs and fixtures are registered.
 NAVIGATION CLICKS: use a POM field whose selector is an anchor (a[, a:, a., starts with 'a ') or name ends in Link/Button. Never click images or divs to navigate.
 LIST PAGES: locators on list pages match multiple elements — append .first() when clicking.
   CORRECT: productsPage.viewProductLink.first().click()  WRONG: productsPage.viewProductLink.click()
-STEP BUDGET: max 40 steps total. Hard gates:
+STEP BUDGET: max 40 steps total. Hard gates — these are ABSOLUTE, not guidelines:
   - Steps 1–3: read + browse only (framework.getGraph, fs.read spec, at most 3 browse.navigate).
   - Steps 4–6: create missing POMs, register fixtures (pom.createPage, fixture.addPage).
   - Step 7 at the latest: test.createSpec (if file missing) + test.addCase. No exceptions.
   If step 7 arrives and POMs are not perfect, write the test anyway — FIX phase corrects selectors.
   Never postpone test.createSpec / test.addCase past step 7. No browsing after step 6.
+  An empty or sparse framework.getGraph is NOT a reason to browse more — create POMs from structural patterns and proceed.
 READS: only read files named in the test case or Expected. No BasePage, no "convention" reads. No re-reads.
   Never fs.read a file you just created or modified — pom.createPage / pom.addSelector results contain the full contents.
-  Never fs.read pages.fixture.ts — fixture names come from framework.getGraph, not from the file.
-AUTH: never browse pages behind login (order confirmation, payment, account). Write from POM + steps only.
-  Public pages are fine to browse: login page, products, product detail, cart.${browse ? `
+  NEVER fs.read pages.fixture.ts — it is managed by the agent tools. Fixture names come from framework.getGraph only.
+  NEVER fs.read a directory path — fs.read is for files only; reading a directory always returns an error.
+AUTH: never browse pages that require login or prior app state (checkout, payment, order confirmation, account).
+  These pages render ad-heavy empty shells or redirect when visited without auth — snapshots are useless and bloat context.
+  Write selectors for these pages from structural patterns only (a[href*='keyword'], button[type='submit'], input[name='field']).
+  Public pages are fine to browse: login page, products list, product detail, cart.${browse ? `
 BROWSE NAVIGATE: use browse.navigate to go to URLs — never browse.click on links/anchors.
-  browse.snapshot after browse.navigate is FORBIDDEN — navigate already returns the full snapshot. Do not call both.
-  Max 3 browse.navigate calls total across the entire generate phase. Each URL at most once.
-  Derive all selectors for a page from its single navigate snapshot — do NOT re-navigate or use evaluate to discover more.
+  browse.snapshot after browse.navigate is a CRITICAL VIOLATION — navigate already returns the full snapshot.
+  Never call browse.snapshot in the same turn as browse.navigate. Never call browse.snapshot on the turn
+  immediately after a browse.navigate turn. Either violation doubles context size and burns your step budget.
+  HARD LIMIT: Max 3 browse.navigate calls total across the entire generate phase. Each URL at most once.
+  Once you have made 3 browse.navigate calls, stop all browsing immediately — no more browse.* tool calls.
+  Derive all selectors for a page from its single navigate result — do NOT re-navigate or evaluate to discover more.
+  An empty framework.getGraph result does NOT justify extra browsing — create POMs from structural patterns and write the test.
 BROWSE CLICK: allowed only when a URL cannot reach the state — form submissions (login errors, order confirm),
   modals, dropdowns. After a click causes navigation, call browse.snapshot once; never browse.navigate again.
   Do NOT click to discover selectors — make best-guess selectors from the snapshot, fix in FIX phase if wrong.
@@ -95,7 +119,9 @@ TESTDATA: NEVER hardcode email addresses, passwords, usernames, or other user-sp
   Any test step that involves login, registration, or filling user credentials MUST use testData.
   Mandatory steps when a test uses credentials:
     a. Call testData.getSchema('users') BEFORE writing the test body — note the EXACT field names returned.
-    b. Add 'testData' to the fixtures array in test.addCase. Without this, testData is not injected and the test will fail.
+    b. CRITICAL: Add 'testData' to the fixtures array in test.addCase — e.g. fixtures: ["loginPage", "testData"].
+       If 'testData' is NOT in the fixtures array, Playwright will not inject it and testData() will throw
+       "testData is not a function" at runtime. This is the most common mistake — do not skip it.
     c. In the test body, call synchronously (NOT await): const user = testData<{ <field1>: string }>('users');
     d. Use the exact field names from getSchema — e.g. if getSchema returns ["locale","username","password"],
        use user.username and user.password — NEVER user.email or any name you invented.
@@ -278,13 +304,16 @@ export function generateTask(tc: TestCase, defaultSpecFile: string, baseUrl?: st
     '  IMPORTANT: complete steps 4–8 (browse + write the test) BEFORE doing step 9 (locale companion specs).',
     '  Do NOT attempt locale checks until test.addCase has succeeded. fs.read does not work on directories.',
     '  4. If browse.* tools are available and the test needs live selector discovery:',
+    '     - HARD LIMIT: max 3 browse.navigate calls total in this entire run. Once reached, stop all browsing.',
     '     - Go directly to the specific page URL — never start at the base URL.',
     `     (e.g. ${baseUrl ?? 'https://your-app.com'}/products — not the home page)`,
-    '     - The navigate response IS the snapshot — do NOT call browse.snapshot after browse.navigate.',
+    '     - The navigate response IS the snapshot — NEVER call browse.snapshot after browse.navigate.',
+    '       Calling browse.snapshot after browse.navigate is a CRITICAL ERROR — it doubles context size and wastes your step budget.',
     '     - Derive ALL selectors for that page from the single navigate result. Do not re-navigate or evaluate.',
-    '     - Max 3 browse.navigate calls total. After step 4, move immediately to step 5 — no more browsing.',
+    '     - After step 4, move immediately to step 5 — no more browsing under any circumstances.',
     '     - Do NOT click around to discover selectors. Make your best guess from the snapshot; FIX phase corrects wrong selectors.',
     '     - SKIP this step entirely when all needed POMs exist in the graph with the right fields.',
+    '     - An empty framework.getGraph result does NOT justify extra browsing — create POMs from structural patterns.',
     '  5. For EVERY pom.createPage call, fixture.addPage MUST be called in the same batch — no exceptions.',
     '     This applies even if the POM is created late (step 6, 7, or alongside test.addCase).',
     '     A POM without a registered fixture causes Playwright to throw "unknown fixture" at runtime.',

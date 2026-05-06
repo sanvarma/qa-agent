@@ -18,6 +18,7 @@ import { astAddImportTool } from './tools/ast/addImport.js';
 import { MockLLMClient } from './llm/mockClient.js';
 import { OllamaClient } from './llm/ollamaClient.js';
 import { AnthropicClient } from './llm/anthropicClient.js';
+import { OpenAIClient } from './llm/openaiClient.js';
 import { loadConfig } from './config/config.js';
 import type { LLMClient } from './llm/client.js';
 import { runOrchestrator } from './orchestrator/qaAgent.js';
@@ -30,7 +31,7 @@ interface RunArgs {
   subcommand: 'run';
   task: string;
   repo: string;
-  llm: 'mock' | 'ollama' | 'anthropic';
+  llm: 'mock' | 'ollama' | 'anthropic' | 'groq';
   ollamaUrl?: string;
 }
 
@@ -38,7 +39,7 @@ interface QaArgs {
   subcommand: 'qa';
   testcase: string;       // path to JSON test case file
   repo: string;
-  llm: 'mock' | 'ollama' | 'anthropic';
+  llm: 'mock' | 'ollama' | 'anthropic' | 'groq';
   ollamaUrl?: string;
 }
 
@@ -114,6 +115,8 @@ function buildLLM(kind: RunArgs['llm'], ollamaUrl?: string): LLMClient {
       return new OllamaClient({ url: resolveOllamaUrl(ollamaUrl) });
     case 'anthropic':
       return new AnthropicClient();
+    case 'groq':
+      return new OpenAIClient({ baseUrl: 'https://api.groq.com/openai' });
   }
 }
 
@@ -125,6 +128,8 @@ function buildQaLLM(kind: QaArgs['llm'], ollamaUrl?: string): LLMClient {
       return new OllamaClient({ url: resolveOllamaUrl(ollamaUrl) });
     case 'anthropic':
       return new AnthropicClient();
+    case 'groq':
+      return new OpenAIClient({ baseUrl: 'https://api.groq.com/openai' });
   }
 }
 

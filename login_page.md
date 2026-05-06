@@ -1,0 +1,89 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e5]:
+      - link "Website for automation practice" [ref=e8] [cursor=pointer]:
+        - /url: /
+        - img "Website for automation practice" [ref=e9]
+      - list [ref=e12]:
+        - listitem [ref=e13]:
+          - link " Home" [ref=e14] [cursor=pointer]:
+            - /url: /
+            - generic [ref=e15]: 
+            - text: Home
+        - listitem [ref=e16]:
+          - link " Products" [ref=e17] [cursor=pointer]:
+            - /url: /products
+            - generic [ref=e18]: 
+            - text: Products
+        - listitem [ref=e19]:
+          - link " Cart" [ref=e20] [cursor=pointer]:
+            - /url: /view_cart
+            - generic [ref=e21]: 
+            - text: Cart
+        - listitem [ref=e22]:
+          - link " Signup / Login" [ref=e23] [cursor=pointer]:
+            - /url: /login
+            - generic [ref=e24]: 
+            - text: Signup / Login
+        - listitem [ref=e25]:
+          - link " Test Cases" [ref=e26] [cursor=pointer]:
+            - /url: /test_cases
+            - generic [ref=e27]: 
+            - text: Test Cases
+        - listitem [ref=e28]:
+          - link " API Testing" [ref=e29] [cursor=pointer]:
+            - /url: /api_list
+            - generic [ref=e30]: 
+            - text: API Testing
+        - listitem [ref=e31]:
+          - link " Video Tutorials" [ref=e32] [cursor=pointer]:
+            - /url: https://www.youtube.com/c/AutomationExercise
+            - generic [ref=e33]: 
+            - text: Video Tutorials
+        - listitem [ref=e34]:
+          - link " Contact us" [ref=e35] [cursor=pointer]:
+            - /url: /contact_us
+            - generic [ref=e36]: 
+            - text: Contact us
+  - generic [ref=e39]:
+    - generic [ref=e41]:
+      - heading "Login to your account" [level=2] [ref=e42]
+      - generic [ref=e43]:
+        - textbox "Email Address" [ref=e44]
+        - textbox "Password" [ref=e45]
+        - button "Login" [ref=e46] [cursor=pointer]
+    - heading "OR" [level=2] [ref=e48]
+    - generic [ref=e50]:
+      - heading "New User Signup!" [level=2] [ref=e51]
+      - generic [ref=e52]:
+        - textbox "Name" [ref=e53]
+        - textbox "Email Address" [ref=e54]
+        - button "Signup" [ref=e55] [cursor=pointer]
+  - contentinfo [ref=e56]:
+    - generic [ref=e61]:
+      - heading "Subscription" [level=2] [ref=e62]
+      - generic [ref=e63]:
+        - textbox "Your email address" [ref=e64]
+        - button "" [ref=e65] [cursor=pointer]:
+          - generic [ref=e66]: 
+        - paragraph [ref=e67]:
+          - text: Get the most recent updates from
+          - text: our site and be updated your self...
+    - paragraph [ref=e71]: Copyright © 2021 All rights reserved
+  - text: 
+  - generic:
+    - insertion:
+      - generic:
+        - iframe
+  - insertion [ref=e75]:
+    - iframe [ref=e78]:
+      - iframe [ref=f9e1]:
+        - generic [ref=f15e2]:
+          - link "Advertisement" [ref=f15e4] [cursor=pointer]:
+            - /url: https://ad.doubleclick.net/pcs/click?xai=AKAOjss4KdnhpA0N0fXgjoId_xCwEjQdhn1qQBXGUDz0J-G2B_nvZHCmtzdlk_FWnVelG8Bm4ab-Q9pWmM3gWGJCYaMfVyi6A913O4rxBDY5AGDVlp9ud_VLicdhPC9gXlotY12Kg0BOP79m6rSdJOlvHIXKFgW7ktR73jMjUMaOblBwYfdbUetmU0hqmL4XZINRprbGR35pRiSXpkaCcgYSHuPuwmj-G6TtCsNV4oUcTV_V0uPMihOF1sqUutt2qoIKYMiHihtVis2-gUtZlNsOFoF7eV25Wm7mglPT_4AvfF2WYLqJ9KCOvJHlqPtlPOY34A2hvdebxEMMeCOv5rnc9uJKMjabQRExQmrtmVsno98m21vd6abZHHfuqGL7qabeCDfBYD4LNupPGVbyD0H5w8RNTkoIX1dQQhVbeZFatTrzfBmbW_zEJqmaWUy3vj7ha7_h_kZYuNxZutetNhF_cr62pXeJn2WEhaO1l86er7oWL666fx2u5LFtg8W9XFSq5tXwyPDoDXYyEvMGhkBgSsuedoaeG1L97H7lTW6ppcRgn-rs4np_VR1YYXqy0AZ84BMY4dfEiI775cB54aYWmlowOhKzbLZPG1jVB18cY8s9n2tEI9yApUTtAszRh23kXM3YCkMaWuv8zB_u4nKknRHXw_OsVyECDQEA4RD5mRStxMe5zLNDOD62eZfgiXM6i6gHpzoSMTmR3zQMv2e-TiK76RFKYdTpzzPL5OVXmqctISC5d2JYldQWW2Qaj0bFia32qw2vAfJ1Im6Lu_4jWo-pKTOBPGpcCLE2Wa-8TLwpuK10sJVfBqDSTo1GAM1SqZH5RrYtq4H8sUmv6G6Ic2m5l0Kq7obTZhP6NHBOz6vpDeKhEAu8Pok1YurhCs2rJld1RWssC0A6i2xIzVlSVCNQYIGCMnMG5lJ_11dTxKwaQcI3_lOSOa3j1j2CaNfMhs2E382bcz8FEXQSBWol-_eV_jB2nh6fYsIY4oDWUDV-RcZCeVpAbxgkc2Duas0_IGTHFXueha9MzSUGiJlR4b5STXM0maXj6CkJAv0s2B9ZU-r-AD55nZmVcZSoyfaeVepiEyog6F4kAlZWPAgYnoWy_TftTo9mddeUhGzoYSo7wZyIqq4qBruRGWBBKHJVg0vIRmHap70Ou5h7CYa2HI2AgJS5vWQF8hYOLt5xQ7WoLi1EnW2gDT9U8jursfmglMgHX6IQCKIPlh1fxQnBDjW4WBLzKJIP_-tNhTFb5IJRHfe_srdbiNOkoL6Ksl5THlPSf79RctPOt33yj7nA-kI2J4Q7RuO2Z00FPOH7saElmgSzFUoKAZV3vdIL7L2zqcDn9_SeecGZvFL--8K2NBpMUD9kneb459SJ1lftNbIcu6eYm2oC6AP5mzJB6m5Su0iK9sSPXHZ3U8dTS0HjmVFg7N5VydoNTeg6qNureQhOQr1_HBQcO4WZcuO7s9v6xNpD0s5_s6eM-9VubqOv3QWLPMc7vW6eDXuBTA4OvaMv_PdUJ43B9kbnstN4KE7U9Nme6A7jfJ-1vaL36xG6vUKcXsBVOTqW5H-XOa7BmRVup8N9XeypzFmd0SSXRvIPz6c0u46ok6d6nHLPS67a-xfUmvewuLfNigQI3xQ3EPLRERCS-fNz5328pJrlccoWOqna8XfL2WKxNHOQ0gYH2uRerEPAK6LZyrnH-qszespOEw8GJbentQLOZIQb9XYE_kwzjdkG1-V4ie7LR7XVeEVe-aOAVmSeotQDUQsQdlr8B8I&sai=AMfl-YQgqumQqZeplyvWNWSHKl3gKEjeLt0bnO5wgjtbcrFvq8djXbWKY1zvwfi1MDWI_pXLNxHz6oy99ZIvAAUD6fGytFnOfVTtqMsUyq0PMG26qDcq4OnowQ9PQsAVzeNkcB8YRUT9lCc0u0_m1k7RtPZRb1a-4MWWZ3sN9wKCfVvPBDPiiQlHdd1bCDbch7qkvgUn3dcvkQW1sLo87B1XTPUdDJwMeONF3JLQIe0z6NCFiRUjJ9mVtyMYIR-UvkSyQNzCbsaDiDVyywsIoBYZ1ksoxJV-liqMXgWZ_i46qE3mh87stcHDLLPv65lfUb1u7QHP3T8scBOYe-VuXY8vmxwfxWQEovlM6K4P9QxwxcOnl24RMeQSS0uECHxs9PLkKG81gkeT6pGfrwYe-_mGPqyN87BwN3-3yYSTHvLU7TQYEzTozeS1pw7GyL0rZ_KvlcKh7wMjvwyoMy6vUFFl31ZD_JLlZ8nMBgcWgr49qq_ANIq5xkBjv3ZN2eZUBzylqp_RmptsKdKcaOrUdL3kRmBJON1miSjsvS99X2EpfewjuDVJhy_OYz45DeJijw05L5VBw7Hl2u43qdAWsIcXSLZVJtB3EMSiRHAh2ySceawI-L6YUQdUiC9itg9pOMSkmKTWVXestyKrvqUmbtm0AH37ZA-5zEfLjalmzMXDGw4yUDqWBosaA_wnuPeC8BxAuYX8r-t23Tek1jqAW5oYh6Q2W29EcelUfZy7KaTbdkf7g9VMf0s7bsWiS_EMpOOo-SLlegKtPdbvJ1nl7hm8cyc5_EoFm051_ddxJt9i_HHC6apipWRT-xIiDtToeQ3xMyohtUSwRxc&sig=Cg0ArKJSzDh3815UKF9s&fbs_aeid=%5Bgw_fbsaeid%5D&crd=aHR0cHM6Ly9wYXlwYWwuY29t&urlfix=1&adurl=https://www.paypal.com/in/campaign/getpaid-globally%3Futm_medium%3Ddv360paid%26utm_source%3Ddisplay%26utm_campaign%3Db0005vxs_d0033x3g%26utm_content%3Din-bau-ao%26dclid%3D%25edclid!%26gad_source%3D7%26gad_campaignid%3D23752825383
+            - img "Advertisement" [ref=f15e5]
+          - generic [ref=f15e6]:
+            - generic:
+              - img [ref=f15e10] [cursor=pointer]
+              - button [ref=f15e12] [cursor=pointer]:
+                - img [ref=f15e13]
