@@ -1,0 +1,298 @@
+import { z } from 'zod';
+import { readFile, readdir, stat } from 'node:fs/promises';
+import { resolve, join } from 'node:path';
+import { chromium } from 'playwright';
+import type { Page, Browser } from 'playwright';
+import type { Tool } from '../tool.js';
+
+// ---------------------------------------------------------------------------
+// Input schema
+// ---------------------------------------------------------------------------
+
+const SetupFlow = z.enum(['cart', 'checkout', 'payment', 'account']);
+type SetupFlow = z.infer<typeof SetupFlow>;
+
+const Input = z.object({
+  url: z.string().describe('Full URL of the page to extract elements from'),
+  setupFlow: SetupFlow.optional().describe(
+    'Predefined setup flow to reach state-dependent pages. ' +
+    'cart: login + add product. ' +
+    'checkout: login + add product + go to cart + proceed. ' +
+    'payment: login + add product + cart + checkout. ' +
+    'account: login only.',
+  ),
+  locale: z.string().optional().describe(
+    "Locale key to pick credentials from testData, e.g. 'en-gb'. Defaults to first record found.",
+  ),
+});
+type Input = z.infer<typeof Input>;
+
+// ---------------------------------------------------------------------------
+// Output types
+// ---------------------------------------------------------------------------
+
+export interface ExtractedElement {
+  tag: string;
+  text: string;
+  selectors: Record<string, string>;
+  bestSelector: string | null;
+}
+
+export interface ExtractElementsOutput {
+  url: string;
+  elements: ExtractedElement[];
+}
+
+// ---------------------------------------------------------------------------
+// Credentials loader
+// ---------------------------------------------------------------------------
+
+async function loadCredentials(
+  repoRoot: string,
+  locale?: string,
+): Promise<{ username: string; password: string } | null> {
+  const dataRoot = resolve(repoRoot, 'src', 'data');
+
+  async function findJsonFiles(dir: string): Promise<string[]> {
+    const results: string[] = [];
+    let entries: string[];
+    try { entries = await readdir(dir); } catch { return results; }
+    for (const e of entries) {
+      const full = join(dir, e);
+      const st = await stat(full).catch(() => null);
+      if (!st) continue;
+      if (st.isDirectory()) results.push(...await findJsonFiles(full));
+      else if (e.endsWith('.json')) results.push(full);
+    }
+    return results;
+  }
+
+  const files = await findJsonFiles(dataRoot);
+  for (const file of files) {
+    try {
+      const raw = await readFile(file, 'utf8');
+      const parsed = JSON.parse(raw) as Record<string, unknown[]>;
+      const users = parsed['users'];
+      if (!Array.isArray(users) || users.length === 0) continue;
+      const record = locale
+        ? (users.find((u: unknown) => (u as Record<string, string>).locale === locale) ?? users[0])
+        : users[0];
+      if (record && typeof record === 'object') {
+        const r = record as Record<string, string>;
+        if (r.username && r.password) return { username: r.username, password: r.password };
+      }
+    } catch { continue; }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// DOM walker — runs inside the browser via page.evaluate()
+// Defined as a string to avoid tsx injecting __name helpers that break
+// serialization when the function is sent to the browser context.
+// Exported so unit tests can run it against a local HTML fixture.
+// ---------------------------------------------------------------------------
+
+export const DOM_WALKER_SCRIPT = `
+(function() {
+  var PRIORITY = ['data-qa', 'data-testid', 'id', 'name', 'type', 'href', 'placeholder', 'aria-label'];
+
+  function buildSelectors(el) {
+    var tag = el.tagName.toLowerCase();
+    var s = {};
+
+    var dataQa = el.getAttribute('data-qa');
+    var dataTestid = el.getAttribute('data-testid');
+    var id = el.id;
+    var name = el.getAttribute('name');
+    var type = el.getAttribute('type');
+    var href = el.getAttribute('href');
+    var placeholder = el.getAttribute('placeholder');
+    var ariaLabel = el.getAttribute('aria-label');
+
+    if (dataQa)     s['data-qa']     = tag + "[data-qa='" + dataQa + "']";
+    if (dataTestid) s['data-testid'] = tag + "[data-testid='" + dataTestid + "']";
+    if (id && !/\\d{3,}/.test(id)) s['id'] = '#' + id;
+    if (name)        s['name']        = tag + "[name='" + name + "']";
+    if (type && type !== 'hidden') s['type'] = tag + "[type='" + type + "']";
+    if (href) {
+      try {
+        var hrefPath = href.startsWith('/') ? href : new URL(href, window.location.origin).pathname;
+        var segment = hrefPath.split('/').filter(Boolean)[0];
+        if (segment) s['href'] = "a[href*='" + segment + "']";
+      } catch(e) { /* invalid href */ }
+      }
+      if (placeholder) s['placeholder'] = tag + "[placeholder='" + placeholder + "']";
+      if (ariaLabel)   s['aria-label']  = "[aria-label='" + ariaLabel + "']";
+
+      return s;
+    }
+
+    var seen = {};
+    var results = [];
+
+    var nodes = document.querySelectorAll(
+      'input:not([type="hidden"]), button, a[href], select, textarea, [role="button"]'
+    );
+
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      var selectors = buildSelectors(el);
+      if (Object.keys(selectors).length === 0) continue;
+
+      var best = null;
+      for (var p = 0; p < PRIORITY.length; p++) {
+        if (selectors[PRIORITY[p]]) { best = PRIORITY[p]; break; }
+      }
+      var key = best ? selectors[best] : null;
+      if (key && seen[key]) continue;
+      if (key) seen[key] = true;
+
+      var text = (el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 40);
+      results.push({
+        tag: el.tagName.toLowerCase(),
+        text: text,
+        selectors: selectors,
+        bestSelector: best ? selectors[best] : null
+      });
+    }
+
+    return results;
+  })()
+`;
+
+async function walkDOM(page: Page): Promise<ExtractedElement[]> {
+  return page.evaluate(DOM_WALKER_SCRIPT) as Promise<ExtractedElement[]>;
+}
+
+// ---------------------------------------------------------------------------
+// Setup flows
+// ---------------------------------------------------------------------------
+
+async function performLogin(page: Page, baseUrl: string, creds: { username: string; password: string }) {
+  await page.goto(`${baseUrl}/login`);
+  await page.waitForLoadState('networkidle');
+
+  // Try data-qa selectors first, then type-based fallbacks
+  const emailSel = await page.$('[data-qa="login-email"]') ? '[data-qa="login-email"]' : 'input[type="email"]';
+  const passSel  = await page.$('[data-qa="login-password"]') ? '[data-qa="login-password"]' : 'input[type="password"]';
+  const btnSel   = await page.$('[data-qa="login-button"]') ? '[data-qa="login-button"]' : 'button[type="submit"]';
+
+  await page.fill(emailSel, creds.username);
+  await page.fill(passSel, creds.password);
+  await page.click(btnSel);
+  await page.waitForLoadState('networkidle');
+}
+
+async function addProductToCart(page: Page, baseUrl: string) {
+  await page.goto(`${baseUrl}/products`);
+  await page.waitForLoadState('networkidle');
+  // Click first "View Product" link
+  const link = page.locator('a[href*="product"]').first();
+  await link.click();
+  await page.waitForLoadState('networkidle');
+  // Click "Add to cart"
+  const addBtn = page.locator('[data-qa="add-to-cart-button"], button:has-text("Add to cart")').first();
+  await addBtn.click();
+  await page.waitForTimeout(500);
+  // Dismiss any modal
+  const continueBtn = page.locator('button:has-text("Continue Shopping")');
+  if (await continueBtn.isVisible().catch(() => false)) await continueBtn.click();
+}
+
+async function runSetupFlow(page: Page, baseUrl: string, flow: SetupFlow, creds: { username: string; password: string }) {
+  switch (flow) {
+    case 'account':
+      await performLogin(page, baseUrl, creds);
+      break;
+    case 'cart':
+      await performLogin(page, baseUrl, creds);
+      await addProductToCart(page, baseUrl);
+      await page.goto(`${baseUrl}/view_cart`);
+      await page.waitForLoadState('networkidle');
+      break;
+    case 'checkout':
+      await performLogin(page, baseUrl, creds);
+      await addProductToCart(page, baseUrl);
+      await page.goto(`${baseUrl}/view_cart`);
+      await page.waitForLoadState('networkidle');
+      await page.locator('a[href*="checkout"]').first().click();
+      await page.waitForLoadState('networkidle');
+      break;
+    case 'payment':
+      await performLogin(page, baseUrl, creds);
+      await addProductToCart(page, baseUrl);
+      await page.goto(`${baseUrl}/view_cart`);
+      await page.waitForLoadState('networkidle');
+      await page.locator('a[href*="checkout"]').first().click();
+      await page.waitForLoadState('networkidle');
+      // Place order to reach payment page
+      const placeOrder = page.locator('a:has-text("Place Order"), button:has-text("Place Order")').first();
+      if (await placeOrder.isVisible().catch(() => false)) await placeOrder.click();
+      await page.waitForLoadState('networkidle');
+      break;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tool definition
+// ---------------------------------------------------------------------------
+
+export const extractElementsTool: Tool<Input, ExtractElementsOutput> = {
+  name: 'page.extractElements',
+  description:
+    'Navigate to a page and extract all interactive elements with ranked selector candidates. ' +
+    'Returns structured JSON — no raw ARIA tree. ' +
+    'Use instead of browse.navigate + browse.snapshot for selector discovery. ' +
+    'For auth-gated or state-dependent pages, pass the appropriate setupFlow. ' +
+    'Credentials are loaded automatically from src/data/qa/<locale>.json.',
+  inputSchema: Input,
+  jsonSchema: {
+    type: 'object',
+    properties: {
+      url: { type: 'string', description: 'Full URL of the page to extract elements from' },
+      setupFlow: {
+        type: 'string',
+        enum: ['cart', 'checkout', 'payment', 'account'],
+        description: 'Predefined flow to reach state-dependent pages',
+      },
+      locale: { type: 'string', description: "Locale key for credentials, e.g. 'en-gb'" },
+    },
+    required: ['url'],
+    additionalProperties: false,
+  },
+
+  async run(input, ctx) {
+    const creds = await loadCredentials(ctx.repoRoot, input.locale);
+
+    let browser: Browser | null = null;
+    try {
+      browser = await chromium.launch({ headless: true });
+      const page = await browser.newPage();
+
+      // Derive base URL from the input URL
+      const parsed = new URL(input.url);
+      const baseUrl = `${parsed.protocol}//${parsed.host}`;
+
+      if (input.setupFlow) {
+        if (!creds) throw new Error('setupFlow requires credentials but none found in src/data/');
+        await runSetupFlow(page, baseUrl, input.setupFlow, creds);
+        // After setup flow, navigate to the target URL if different from flow's end page
+        const currentUrl = page.url();
+        if (!currentUrl.includes(parsed.pathname)) {
+          await page.goto(input.url);
+          await page.waitForLoadState('networkidle');
+        }
+      } else {
+        await page.goto(input.url);
+        await page.waitForLoadState('networkidle');
+      }
+
+      const elements = await walkDOM(page);
+
+      return { url: page.url(), elements };
+    } finally {
+      if (browser) await browser.close();
+    }
+  },
+};

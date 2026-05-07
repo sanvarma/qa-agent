@@ -31,20 +31,26 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    subgraph GENERATE ["Generate Phase Tools"]
+    subgraph POM ["POM Agent Tools"]
         direction TB
-        G1[framework.getGraph]
-        G2[testData.getSchema]
-        G3[fs.read]
-        G4[test.createSpec]
-        G5[test.addCase]
-        G6[ast.addImport]
-        G7[pom.createPage]
-        G8[pom.addSelector]
-        G9[pom.updateSelector]
-        G10[pom.editMethod]
-        G11[fixture.addPage]
-        G12[browse.*\n6 MCP tools — optional]
+        P1[framework.getGraph]
+        P2[fs.read]
+        P3[page.extractElements]
+        P4[pom.createPage]
+        P5[pom.addSelector]
+        P6[pom.updateSelector]
+        P7[pom.editMethod]
+        P8[fixture.addPage]
+    end
+
+    subgraph TW ["Test Writer Agent Tools"]
+        direction TB
+        T1[framework.getGraph]
+        T2[testData.getSchema]
+        T3[fs.read]
+        T4[test.createSpec]
+        T5[test.addCase]
+        T6[ast.addImport]
     end
 
     subgraph FIX ["Fix Phase Tools"]
@@ -178,10 +184,13 @@ xychart-beta
 ```
 src/
 ├── orchestrator/
-│   ├── qaAgent.ts          # phase loop, tool registry setup
-│   ├── prompts.ts          # system prompt + task prompt builders
+│   ├── qaAgent.ts          # phase loop, MCP wiring, budget/zero-test guards
 │   ├── testCase.ts         # TestCase type + renderer
-│   └── state.ts            # phase state machine
+│   ├── state.ts            # phase state machine
+│   └── agents/
+│       ├── pomAgent.ts         # POM Agent — tool registry (no session tools), system+task prompts
+│       ├── testWriterAgent.ts  # Test Writer Agent — tool registry, system+task prompts, spec inference
+│       └── fixPrompts.ts       # Fix Agent system prompt + task builder
 │
 ├── tools/
 │   ├── framework/

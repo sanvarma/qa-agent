@@ -62,6 +62,67 @@ describe('test.addCase — success', () => {
   });
 });
 
+describe('test.addCase — testData field validation', () => {
+  let repo: TempRepo;
+  afterEach(async () => { if (repo) await repo.cleanup(); });
+
+  test('rejects body that accesses a non-existent field', async () => {
+    repo = await makeTempRepo();
+    await repo.write('src/data/testdata.json', JSON.stringify({
+      users: [{ username: 'alice', password: 'secret' }],
+    }));
+    await repo.write('tests/login.spec.ts', "import { test } from '@playwright/test';\n");
+
+    await assert.rejects(
+      () => testAddCaseTool.run(
+        {
+          file: 'tests/login.spec.ts',
+          title: 'bad field test',
+          body: "const user = testData('users');\nawait page.fill('#u', user.email);",
+          position: 'end',
+        },
+        repo.toolCtx,
+      ),
+      /testData field mismatch.*'email'.*Valid fields.*'username'.*'password'/,
+    );
+  });
+
+  test('accepts body that only accesses valid fields', async () => {
+    repo = await makeTempRepo();
+    await repo.write('src/data/testdata.json', JSON.stringify({
+      users: [{ username: 'alice', password: 'secret' }],
+    }));
+    await repo.write('tests/login.spec.ts', "import { test } from '@playwright/test';\n");
+
+    const out = await testAddCaseTool.run(
+      {
+        file: 'tests/login.spec.ts',
+        title: 'good field test',
+        body: "const user = testData('users');\nawait page.fill('#u', user.username);",
+        position: 'end',
+      },
+      repo.toolCtx,
+    );
+    assert.ok(out.insertedAt.startLine > 0);
+  });
+
+  test('ignores unknown dataset key (no schema to check against)', async () => {
+    repo = await makeTempRepo();
+    await repo.write('tests/login.spec.ts', "import { test } from '@playwright/test';\n");
+
+    const out = await testAddCaseTool.run(
+      {
+        file: 'tests/login.spec.ts',
+        title: 'unknown key test',
+        body: "const x = testData('nonexistent');\nawait page.fill('#u', x.whatever);",
+        position: 'end',
+      },
+      repo.toolCtx,
+    );
+    assert.ok(out.insertedAt.startLine > 0);
+  });
+});
+
 describe('test.addCase — refusals', () => {
   let repo: TempRepo;
   afterEach(async () => { if (repo) await repo.cleanup(); });

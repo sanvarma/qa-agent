@@ -1,10 +1,65 @@
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { makeTempRepo, type TempRepo } from '../../helpers/tempRepo.js';
 import { pomEditMethodTool } from '../../../src/tools/pom/editMethod.js';
 
-describe('pom.editMethod — success', () => {
+describe('pom.editMethod — create (method does not exist)', () => {
+  let repo: TempRepo;
+  afterEach(async () => { if (repo) await repo.cleanup(); });
+
+  test('creates a new async method with params', async () => {
+    repo = await makeTempRepo();
+    const pomPath = await repo.write(
+      'src/pages/LoginPage.ts',
+      [
+        'export class LoginPage {',
+        '  readonly emailInput = this.loc("input[type=\'email\']");',
+        '}',
+        '',
+      ].join('\n'),
+    );
+
+    const out = await pomEditMethodTool.run(
+      {
+        file: 'src/pages/LoginPage.ts',
+        name: 'login',
+        params: 'username: string, password: string',
+        isAsync: true,
+        returnType: 'Promise<void>',
+        newBody: 'await this.emailInput.fill(username);',
+      },
+      repo.toolCtx,
+    );
+
+    assert.equal(out.created, true);
+    assert.equal(out.symbolPath, 'LoginPage.login');
+    assert.equal(out.linesChanged.before, null);
+    const disk = await readFile(pomPath, 'utf8');
+    assert.match(disk, /async login\(username: string, password: string\)/);
+    assert.match(disk, /await this\.emailInput\.fill\(username\)/);
+  });
+
+  test('creates a new method with no params using defaults', async () => {
+    repo = await makeTempRepo();
+    await repo.write(
+      'src/pages/CartPage.ts',
+      ['export class CartPage {', '}', ''].join('\n'),
+    );
+
+    const out = await pomEditMethodTool.run(
+      { file: 'src/pages/CartPage.ts', name: 'proceedToCheckout', newBody: 'await this.checkoutButton.click();' },
+      repo.toolCtx,
+    );
+
+    assert.equal(out.created, true);
+    const disk = await readFile(resolve(repo.repoRoot, 'src/pages/CartPage.ts'), 'utf8');
+    assert.match(disk, /async proceedToCheckout\(\): Promise<void>/);
+  });
+});
+
+describe('pom.editMethod — replace (method exists)', () => {
   let repo: TempRepo;
   afterEach(async () => { if (repo) await repo.cleanup(); });
 

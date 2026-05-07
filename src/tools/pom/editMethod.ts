@@ -5,32 +5,40 @@ import { resolveWithinScope } from '../util/scope.js';
 import { getProject, invalidateSourceFile } from '../../ast/project.js';
 import { resolveClass } from '../../ast/pomClassResolver.js';
 import { findMethod } from '../../ast/pomMethodLocator.js';
-import { replaceMethodBody, MethodEditError } from '../../ast/pomMethodEditor.js';
+import { replaceMethodBody, addMethod, MethodEditError } from '../../ast/pomMethodEditor.js';
 import { unifiedDiff } from '../../ast/diff.js';
 
 const Input = z.object({
   file: z.string().min(1),
   class: z.string().optional(),
-  name: z.string().min(1).describe('Method name on the class, e.g. "addAddress"'),
+  name: z.string().min(1).describe('Method name on the class, e.g. "login"'),
   newBody: z.string().min(1).describe('Raw statements for the method body, no surrounding braces'),
+  // Used only when creating a new method (ignored when method already exists)
+  params: z.string().optional().describe(
+    'Parameter list for a NEW method, e.g. "username: string, password: string". Ignored when replacing.',
+  ),
+  isAsync: z.boolean().optional().describe('Whether the new method is async. Ignored when replacing.'),
+  returnType: z.string().optional().describe('Return type for a new method. Ignored when replacing.'),
 });
 type Input = z.infer<typeof Input>;
 
 interface Output {
   file: string;
   className: string;
-  symbolPath: string;         // e.g. "CheckoutPage.addAddress"
-  linesChanged: { before: [number, number]; after: [number, number] };
+  symbolPath: string;
+  created: boolean;
+  linesChanged: { before: [number, number] | null; after: [number, number] };
   diff: string;
 }
 
 export const pomEditMethodTool: Tool<Input, Output> = {
   name: 'pom.editMethod',
   description:
-    'Replace the body of a named instance method on a page-object class. ' +
-    'Preserves: method name, parameters, async, static, visibility, return type, decorators, ' +
-    'overload signatures. Refuses getters/setters (use pom.updateSelector for those), ' +
-    'constructors, abstract methods, and overloaded methods (for now).',
+    'Add or replace a named instance method on a page-object class. ' +
+    'If the method does not exist it is created using params/isAsync/returnType. ' +
+    'If it already exists its body is replaced and the existing signature is preserved. ' +
+    'Refuses getters/setters (use pom.updateSelector for those), ' +
+    'constructors, abstract methods, and overloaded methods.',
   inputSchema: Input,
   jsonSchema: {
     type: 'object',
@@ -39,6 +47,9 @@ export const pomEditMethodTool: Tool<Input, Output> = {
       class: { type: 'string' },
       name: { type: 'string' },
       newBody: { type: 'string' },
+      params: { type: 'string', default: '' },
+      isAsync: { type: 'boolean', default: true },
+      returnType: { type: 'string', default: 'Promise<void>' },
     },
     required: ['file', 'name', 'newBody'],
     additionalProperties: false,
@@ -70,12 +81,8 @@ export const pomEditMethodTool: Tool<Input, Output> = {
     const cls = clsResult.cls;
     const find = findMethod(cls, input.name);
 
+    // Refuse accessors, constructors, abstract, overloaded — regardless of create/replace.
     switch (find.status) {
-      case 'not_found':
-        throw new Error(
-          `method '${input.name}' not found on class '${cls.getName()}'. ` +
-            `Methods in class: ${find.methodCandidates.join(', ') || '(none)'}`,
-        );
       case 'is_accessor':
         throw new Error(
           `'${input.name}' is a ${find.kind}, not a method. ` +
@@ -93,30 +100,56 @@ export const pomEditMethodTool: Tool<Input, Output> = {
         );
     }
 
-    // find.status === 'found'
-    const { locator, methodNode } = find;
-
     try {
+      if (find.status === 'not_found') {
+        // CREATE path
+        const methodNode = addMethod(cls, {
+          name: input.name,
+          params: input.params ?? '',
+          isAsync: input.isAsync ?? true,
+          returnType: input.returnType ?? 'Promise<void>',
+          body: input.newBody,
+        });
+
+        await sf.save();
+        const afterSource = sf.getFullText();
+
+        return {
+          file: input.file,
+          className: cls.getName()!,
+          symbolPath: `${cls.getName()}.${input.name}`,
+          created: true,
+          linesChanged: {
+            before: null,
+            after: [methodNode.getStartLineNumber(), methodNode.getEndLineNumber()],
+          },
+          diff: unifiedDiff(beforeSource, afterSource, input.file),
+        };
+      }
+
+      // REPLACE path — find.status === 'found'
+      const { locator, methodNode } = find;
       replaceMethodBody(methodNode, input.newBody);
+
+      await sf.save();
+      const afterSource = sf.getFullText();
+
+      return {
+        file: input.file,
+        className: locator.className,
+        symbolPath: `${locator.className}.${locator.name}`,
+        created: false,
+        linesChanged: {
+          before: [locator.startLine, locator.endLine],
+          after: [methodNode.getStartLineNumber(), methodNode.getEndLineNumber()],
+        },
+        diff: unifiedDiff(beforeSource, afterSource, input.file),
+      };
     } catch (err) {
       if (err instanceof MethodEditError) {
         throw new Error(`${err.code}: ${err.message}`);
       }
       throw err;
     }
-
-    await sf.save();
-    const afterSource = sf.getFullText();
-
-    return {
-      file: input.file,
-      className: locator.className,
-      symbolPath: `${locator.className}.${locator.name}`,
-      linesChanged: {
-        before: [locator.startLine, locator.endLine],
-        after: [methodNode.getStartLineNumber(), methodNode.getEndLineNumber()],
-      },
-      diff: unifiedDiff(beforeSource, afterSource, input.file),
-    };
   },
 };
