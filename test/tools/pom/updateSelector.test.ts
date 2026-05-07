@@ -32,9 +32,7 @@ describe('pom.updateSelector — success', () => {
       repo.toolCtx,
     );
 
-    assert.equal(out.before, '[data-test=email]');
-    assert.equal(out.after, '[data-testid=email]');
-    assert.equal(out.className, 'LoginPage');
+    assert.equal(out.ok, true);
 
     const disk = await readFile(pomPath, 'utf8');
     // New selector present; old selector on emailField gone; password untouched.
@@ -65,7 +63,7 @@ describe('pom.updateSelector — success', () => {
       repo.toolCtx,
     );
 
-    assert.equal(out.diff, '', 'idempotent no-op returns empty diff');
+    assert.equal(out.ok, true);
     const after = await readFile(pomPath, 'utf8');
     assert.equal(after, before, 'file byte-identical after no-op');
   });

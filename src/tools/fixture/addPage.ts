@@ -4,7 +4,6 @@ import { resolve, relative, dirname, isAbsolute } from 'node:path';
 import type { Tool } from '../tool.js';
 import { getProject, invalidateSourceFile } from '../../ast/project.js';
 import { addImport } from '../../ast/importEditor.js';
-import { unifiedDiff } from '../../ast/diff.js';
 import { SyntaxKind, Node, type SourceFile } from 'ts-morph';
 
 const FIXTURE_FILE = 'src/fixtures/pages.fixture.ts';
@@ -27,9 +26,8 @@ const Input = z.object({
 type Input = z.infer<typeof Input>;
 
 interface Output {
-  file: string;
-  changed: boolean;
-  diff: string;
+  ok: true;
+  alreadyRegistered: boolean;
 }
 
 /** Convert locale string to PascalCase prefix: "es-pr" → "EsPr" */
@@ -110,11 +108,9 @@ export const fixtureAddPageTool: Tool<Input, Output> = {
 
     await sf.save();
     const afterSource = sf.getFullText();
-    const changed = afterSource !== beforeSource;
     return {
-      file: FIXTURE_FILE,
-      changed,
-      diff: changed ? unifiedDiff(beforeSource, afterSource, FIXTURE_FILE) : '',
+      ok: true,
+      alreadyRegistered: afterSource === beforeSource,
     };
   },
 };

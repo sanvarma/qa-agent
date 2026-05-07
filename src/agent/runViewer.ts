@@ -2,12 +2,20 @@ import type { RunMeta } from './conversationLog.js';
 import type { Turn } from './types.js';
 import type { LogEvent } from '../orchestrator/logger.js';
 
+interface AgentData { meta: RunMeta; turns: Turn[]; }
+interface Agents { pom?: AgentData; testwriter?: AgentData; }
+
 /**
  * Generate a self-contained HTML run viewer for the given conversation.
  * The data is embedded as a JSON literal — no external dependencies needed.
  */
-export function generateRunViewerHtml(meta: RunMeta, turns: Turn[], logEvents: LogEvent[] = []): string {
-  const data = JSON.stringify({ meta, turns, logEvents });
+export function generateRunViewerHtml(
+  meta: RunMeta,
+  turns: Turn[],
+  logEvents: LogEvent[] = [],
+  agents: Agents = {},
+): string {
+  const data = JSON.stringify({ meta, turns, logEvents, agents });
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -23,6 +31,16 @@ export function generateRunViewerHtml(meta: RunMeta, turns: Turn[], logEvents: L
   .meta-item { display: flex; flex-direction: column; gap: 2px; }
   .meta-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; }
   .meta-value { font-size: 12px; color: #cbd5e1; font-family: monospace; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 2px; padding: 0 24px; background: #141722; border-bottom: 1px solid #1e2235; }
+  .tab { padding: 10px 16px; font-size: 12px; font-weight: 600; color: #475569; cursor: pointer; border-bottom: 2px solid transparent; letter-spacing: 0.02em; user-select: none; }
+  .tab:hover { color: #94a3b8; }
+  .tab.active { color: #a5b4fc; border-bottom-color: #6366f1; }
+  .tab.disabled { color: #2d3148; cursor: default; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
   .stats { display: flex; gap: 16px; padding: 10px 24px; background: #141722; border-bottom: 1px solid #1e2235; flex-wrap: wrap; }
   .stat { display: flex; align-items: center; gap: 6px; }
   .stat-num { font-weight: 700; font-size: 15px; }
@@ -51,13 +69,15 @@ export function generateRunViewerHtml(meta: RunMeta, turns: Turn[], logEvents: L
   .orch-phase.warn { border-left: 3px solid #fb923c; }
   .orch-phase.info { border-left: 3px solid #60a5fa; }
   .phase-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .phase-dot.generate { background: #818cf8; }
-  .phase-dot.execute  { background: #34d399; }
-  .phase-dot.analyze  { background: #fbbf24; }
-  .phase-dot.fix      { background: #f97316; }
-  .phase-dot.done     { background: #4ade80; }
-  .phase-dot.exhausted{ background: #f87171; }
-  .phase-dot.init     { background: #64748b; }
+  .phase-dot.pom        { background: #818cf8; }
+  .phase-dot.testwriter { background: #c4b5fd; }
+  .phase-dot.generate   { background: #818cf8; }
+  .phase-dot.execute    { background: #34d399; }
+  .phase-dot.analyze    { background: #fbbf24; }
+  .phase-dot.fix        { background: #f97316; }
+  .phase-dot.done       { background: #4ade80; }
+  .phase-dot.exhausted  { background: #f87171; }
+  .phase-dot.init       { background: #64748b; }
   .phase-name { font-size: 11px; font-weight: 700; color: #94a3b8; width: 80px; flex-shrink: 0; text-transform: uppercase; letter-spacing: 0.04em; }
   .phase-event { font-size: 11px; color: #64748b; flex: 1; font-family: monospace; }
   .phase-dur { font-size: 11px; font-family: monospace; color: #60a5fa; width: 60px; text-align: right; flex-shrink: 0; }
@@ -67,6 +87,9 @@ export function generateRunViewerHtml(meta: RunMeta, turns: Turn[], logEvents: L
   .orch-col-header { display: flex; align-items: center; gap: 12px; padding: 4px 12px; }
   .orch-col-header span { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: #334155; }
   .phase-detail { font-size: 10px; color: #475569; margin-top: 2px; font-family: monospace; max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Agent token summary bar */
+  .agent-summary { display: flex; gap: 16px; padding: 10px 24px; background: #0f1117; border-bottom: 1px solid #1e2235; flex-wrap: wrap; }
 
   .timeline { padding: 20px 24px; max-width: 1000px; }
   .step { display: flex; gap: 0; margin-bottom: 4px; }
@@ -79,6 +102,7 @@ export function generateRunViewerHtml(meta: RunMeta, turns: Turn[], logEvents: L
   .role-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin-bottom: 6px; }
   .role-label.assistant { color: #818cf8; }
   .role-label.user { color: #2dd4bf; }
+  .tok-label { font-size: 10px; color: #64748b; margin-left: 8px; font-family: monospace; }
   .text-bubble { background: #1e2235; border: 1px solid #2d3148; border-radius: 8px; padding: 10px 14px; margin-bottom: 6px; color: #94a3b8; font-style: italic; line-height: 1.5; }
   .tool-group { margin-bottom: 4px; }
   .tool-call { display: flex; align-items: flex-start; gap: 8px; background: #1a1d2e; border: 1px solid #2d3148; border-radius: 6px 6px 0 0; padding: 7px 12px; border-bottom: none; }
@@ -87,14 +111,16 @@ export function generateRunViewerHtml(meta: RunMeta, turns: Turn[], logEvents: L
   .tool-result.err { border-top: 2px solid #7f1d1d; }
   .tool-result.warn { border-top: 2px solid #92400e; }
   .tool-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; font-family: monospace; padding: 2px 8px; border-radius: 4px; flex-shrink: 0; }
-  .tool-badge.fs      { background: #0c2a4a; color: #60a5fa; border: 1px solid #1e40af; }
-  .tool-badge.browse  { background: #2d1a00; color: #fb923c; border: 1px solid #92400e; }
+  .tool-badge.fs        { background: #0c2a4a; color: #60a5fa; border: 1px solid #1e40af; }
+  .tool-badge.browse    { background: #2d1a00; color: #fb923c; border: 1px solid #92400e; }
   .tool-badge.browse.repeat { background: #3d0a0a; color: #f87171; border: 1px solid #7f1d1d; }
-  .tool-badge.pom     { background: #052e16; color: #4ade80; border: 1px solid #166534; }
-  .tool-badge.test    { background: #2e1065; color: #c4b5fd; border: 1px solid #5b21b6; }
-  .tool-badge.fixture { background: #1a1000; color: #fbbf24; border: 1px solid #92400e; }
-  .tool-badge.ast     { background: #1a0030; color: #e879f9; border: 1px solid #7e22ce; }
-  .tool-badge.other   { background: #1e2235; color: #94a3b8; border: 1px solid #334155; }
+  .tool-badge.pom       { background: #052e16; color: #4ade80; border: 1px solid #166534; }
+  .tool-badge.test      { background: #2e1065; color: #c4b5fd; border: 1px solid #5b21b6; }
+  .tool-badge.fixture   { background: #1a1000; color: #fbbf24; border: 1px solid #92400e; }
+  .tool-badge.framework { background: #0a2040; color: #93c5fd; border: 1px solid #1d4ed8; }
+  .tool-badge.page      { background: #1a0a30; color: #d8b4fe; border: 1px solid #7c3aed; }
+  .tool-badge.ast       { background: #1a0030; color: #e879f9; border: 1px solid #7e22ce; }
+  .tool-badge.other     { background: #1e2235; color: #94a3b8; border: 1px solid #334155; }
   .repeat-badge { font-size: 10px; background: #7f1d1d; color: #fca5a5; padding: 1px 5px; border-radius: 3px; font-weight: 700; }
   .tool-input { font-family: monospace; font-size: 12px; color: #94a3b8; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .result-status { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; margin-bottom: 4px; }
@@ -122,6 +148,7 @@ export function generateRunViewerHtml(meta: RunMeta, turns: Turn[], logEvents: L
   .task-tag   { background: #1e1b4b; color: #818cf8; padding: 2px 7px; border-radius: 3px; border: 1px solid #3730a3; }
   .section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; padding: 16px 24px 8px; }
   .divider { border: none; border-top: 1px solid #1e2235; margin: 0 24px; }
+  .empty-state { padding: 40px 24px; color: #334155; font-style: italic; text-align: center; }
 </style>
 </head>
 <body>
@@ -134,37 +161,45 @@ function esc(s) {
 }
 function toolCategory(n) {
   if (!n) return 'other';
-  if (n.startsWith('browse.')) return 'browse';
-  if (n.startsWith('fs.'))     return 'fs';
-  if (n.startsWith('pom.'))    return 'pom';
-  if (n.startsWith('test.'))   return 'test';
-  if (n.startsWith('fixture.'))return 'fixture';
-  if (n.startsWith('ast.'))    return 'ast';
+  if (n.startsWith('browse.'))     return 'browse';
+  if (n.startsWith('fs.'))         return 'fs';
+  if (n.startsWith('pom.'))        return 'pom';
+  if (n.startsWith('test.'))       return 'test';
+  if (n.startsWith('fixture.'))    return 'fixture';
+  if (n.startsWith('framework.'))  return 'framework';
+  if (n.startsWith('page.'))       return 'page';
+  if (n.startsWith('ast.'))        return 'ast';
   return 'other';
 }
 function toolIcon(n) {
   if (!n) return '⚙';
-  if (n === 'fs.read')              return '📄';
-  if (n.startsWith('browse.navigate')) return '🌐';
-  if (n.startsWith('browse.click')) return '🖱';
-  if (n.startsWith('browse.'))      return '👁';
-  if (n.startsWith('pom.create'))   return '🏗';
-  if (n.startsWith('pom.'))         return '✏';
-  if (n.startsWith('fixture.'))     return '🔌';
-  if (n.startsWith('test.'))        return '📝';
-  if (n.startsWith('ast.'))         return '📦';
+  if (n === 'fs.read')                return '📄';
+  if (n.startsWith('browse.navigate'))return '🌐';
+  if (n.startsWith('browse.click'))   return '🖱';
+  if (n.startsWith('browse.'))        return '👁';
+  if (n.startsWith('pom.create'))     return '🏗';
+  if (n.startsWith('pom.'))           return '✏';
+  if (n.startsWith('fixture.'))       return '🔌';
+  if (n.startsWith('test.'))          return '📝';
+  if (n.startsWith('framework.'))     return '🗺';
+  if (n.startsWith('page.'))          return '🔍';
+  if (n.startsWith('ast.'))           return '📦';
   return '⚙';
 }
 function inputSummary(n, inp) {
   if (!inp) return '';
-  if (n === 'fs.read')           return inp.path || '';
+  if (n === 'fs.read')              return inp.path || '';
   if (n && n.startsWith('browse.')) return inp.url || inp.element || '';
-  if (n === 'pom.createPage')    return inp.file || '';
-  if (n === 'pom.updateSelector')return (inp.file || '') + ' → ' + (inp.name || '');
-  if (n === 'test.addCase')      return inp.title || inp.file || '';
-  if (n === 'test.createSpec')   return inp.file || '';
-  if (n === 'fixture.addPage')   return inp.className || '';
-  if (n === 'ast.addImport')     return inp.file || '';
+  if (n === 'pom.createPage')       return inp.file || '';
+  if (n === 'pom.updateSelector')   return (inp.file || '') + ' → ' + (inp.name || '');
+  if (n === 'pom.addSelector')      return (inp.file || '') + ' → ' + (inp.name || '');
+  if (n === 'pom.editMethod')       return (inp.file || '') + ' → ' + (inp.name || '');
+  if (n === 'test.addCase')         return inp.title || inp.file || '';
+  if (n === 'test.createSpec')      return inp.file || '';
+  if (n === 'fixture.addPage')      return inp.className || '';
+  if (n === 'ast.addImport')        return inp.file || '';
+  if (n === 'page.extractElements') return inp.url || '';
+  if (n === 'framework.getGraph')   return '';
   const keys = Object.keys(inp);
   if (!keys.length) return '';
   return (keys[0] + ': ' + JSON.stringify(inp[keys[0]])).slice(0, 80);
@@ -177,9 +212,13 @@ function resultSummary(n, r) {
     const um = t.match(/- Page URL: (.+)/), tm = t.match(/- Page Title: (.+)/);
     return { type:'browse', url: um?.[1]?.trim(), title: tm?.[1]?.trim(), raw: t };
   }
-  if (n === 'fs.read') return { type:'file', path: o.path, lines: o.totalLines, content: o.content };
-  if (n === 'pom.createPage') return { type:'write', file: o.file, bytes: o.bytesWritten };
-  if (n === 'pom.updateSelector') return { type:'update', file: o.file, before: o.before, after: o.after };
+  if (n === 'fs.read')           return { type:'file', path: o.path, lines: o.totalLines, content: o.content };
+  if (n === 'page.extractElements') return { type:'extract', url: o.url, count: o.elements?.length };
+  if (n === 'framework.getGraph')   return { type:'graph', pages: Object.keys(o.pages||{}).length };
+  if (n === 'pom.createPage')    return { type:'write', file: o.file };
+  if (n === 'pom.updateSelector')return { type:'write', file: o.file };
+  if (n === 'pom.addSelector')   return { type:'write', file: o.file };
+  if (n === 'pom.editMethod')    return { type:'write', file: o.file };
   if (['test.createSpec','test.addCase','fixture.addPage','ast.addImport'].includes(n))
     return { type:'write', file: o.file || o.specFile };
   return { type:'raw', data: o };
@@ -213,15 +252,23 @@ function buildSteps(turns) {
   for (const t of turns) {
     if (t.role !== 'assistant') continue;
     n++;
-    pairs.push({ stepNum: n, text: t.content.text || null,
-      calls: (t.content.toolCalls||[]).map(c => ({ call:c, result: byId[c.id]||null })) });
+    pairs.push({
+      stepNum: n,
+      text: t.content.text || null,
+      usage: t.content.usage || null,
+      calls: (t.content.toolCalls||[]).map(c => ({ call:c, result: byId[c.id]||null })),
+    });
   }
   return { task, pairs };
 }
 function computeStats(turns, repeats) {
-  let browse=0, rep=0, fs=0, pom=0, err=0, steps=0;
+  let browse=0, rep=0, fs=0, pom=0, err=0, steps=0, inTok=0, outTok=0;
   for (const t of turns) {
-    if (t.role==='assistant' && t.content.toolCalls?.length) steps++;
+    if (t.role==='assistant') {
+      if (t.content.toolCalls?.length) steps++;
+      inTok  += t.content.usage?.inputTokens  || 0;
+      outTok += t.content.usage?.outputTokens || 0;
+    }
     if (t.role!=='user') continue;
     for (const r of (t.content.toolResults||[])) {
       if (!r.ok) err++;
@@ -230,7 +277,7 @@ function computeStats(turns, repeats) {
       if (r.toolName?.startsWith('pom.')) pom++;
     }
   }
-  return { browse, rep, fs, pom, err, steps };
+  return { browse, rep, fs, pom, err, steps, inTok, outTok };
 }
 
 function fmtDur(ms) {
@@ -247,21 +294,18 @@ function fmtTok(n) {
 function buildOrchPanel(events) {
   if (!events || events.length === 0) return '';
 
-  // Compute total duration from first to last event
   const first = new Date(events[0].ts).getTime();
   const last  = new Date(events[events.length - 1].ts).getTime();
   const totalMs = last - first;
 
-  // Aggregate tokens from phase.ok events
   let totalIn = 0, totalOut = 0;
   for (const e of events) {
     const u = e.data?.usage;
     if (u) { totalIn += u.inputTokens || 0; totalOut += u.outputTokens || 0; }
   }
 
-  // Build phase rows: pair each phase.enter with its phase.ok/phase.error
   const rows = [];
-  const enterMap = {}; // phase+attempt -> enter event
+  const enterMap = {};
   for (const e of events) {
     const key = e.phase + '_' + e.attempt;
     if (e.event === 'phase.enter') {
@@ -271,25 +315,18 @@ function buildOrchPanel(events) {
       const durMs = enter ? new Date(e.ts).getTime() - new Date(enter.ts).getTime() : null;
       const u = e.data?.usage;
       rows.push({
-        phase: e.phase,
-        attempt: e.attempt,
+        phase: e.phase, attempt: e.attempt,
         status: e.event === 'phase.ok' ? 'ok' : 'err',
-        level: e.level,
-        durMs,
-        inTok: u?.inputTokens || 0,
-        outTok: u?.outputTokens || 0,
+        level: e.level, durMs,
+        inTok: u?.inputTokens || 0, outTok: u?.outputTokens || 0,
         steps: e.data?.steps || null,
         detail: e.data ? summarizeData(e.data) : null,
       });
     } else if (!e.event.startsWith('phase.')) {
-      // Non-phase events (run.start, mcp.started, retry.*, fix.budget_exhausted, run.success etc.)
       rows.push({
-        phase: e.phase,
-        attempt: e.attempt,
+        phase: e.phase, attempt: e.attempt,
         status: e.level === 'error' ? 'err' : e.level === 'warn' ? 'warn' : 'info',
-        level: e.level,
-        durMs: null,
-        inTok: 0, outTok: 0, steps: null,
+        level: e.level, durMs: null, inTok: 0, outTok: 0, steps: null,
         detail: e.event + (e.data ? ': ' + summarizeData(e.data) : ''),
         isEvent: true,
       });
@@ -341,55 +378,42 @@ function buildOrchPanel(events) {
   return h;
 }
 
-function render() {
-  const { meta, turns, logEvents } = RUN_DATA;
+function buildTimeline(turns, label) {
+  if (!turns || turns.length === 0) {
+    return '<div class="empty-state">No conversation data for ' + esc(label) + '.</div>';
+  }
   const repeats = buildVisitMap(turns);
   const { task, pairs } = buildSteps(turns);
   const s = computeStats(turns, repeats);
-  const started = new Date(meta.startedAt).toLocaleString();
+
   let h = '';
-
-  h += '<div class="header"><h1>' + esc(meta.task) + '</h1><div class="meta">'
-    + '<div class="meta-item"><span class="meta-label">Run ID</span><span class="meta-value">' + esc(meta.id) + '</span></div>'
-    + '<div class="meta-item"><span class="meta-label">Model</span><span class="meta-value">' + esc(meta.model) + '</span></div>'
-    + '<div class="meta-item"><span class="meta-label">Started</span><span class="meta-value">' + esc(started) + '</span></div>'
-    + '<div class="meta-item"><span class="meta-label">Repo</span><span class="meta-value">' + esc(meta.repoRoot) + '</span></div>'
-    + '</div></div>';
-
   h += '<div class="stats">'
     + '<div class="stat info"><span class="stat-num">' + s.steps + '</span><span class="stat-label">steps</span></div>'
     + '<div class="stat ' + (s.rep>0?'warn':'ok') + '"><span class="stat-num">' + s.browse + '</span><span class="stat-label">browse' + (s.rep>0?' ('+s.rep+' repeat)':'') + '</span></div>'
     + '<div class="stat info"><span class="stat-num">' + s.fs + '</span><span class="stat-label">fs.read</span></div>'
     + '<div class="stat ok"><span class="stat-num">' + s.pom + '</span><span class="stat-label">pom ops</span></div>'
     + '<div class="stat ' + (s.err>0?'err':'ok') + '"><span class="stat-num">' + s.err + '</span><span class="stat-label">errors</span></div>'
+    + '<div class="stat tok" style="margin-left:auto"><span class="stat-num">' + fmtTok(s.inTok) + '</span><span class="stat-label">in tokens</span></div>'
+    + '<div class="stat tok"><span class="stat-num">' + fmtTok(s.outTok) + '</span><span class="stat-label">out tokens</span></div>'
     + '</div>';
 
-  // Orchestrator panel (only if log events are present)
-  if (logEvents && logEvents.length > 0) {
-    h += buildOrchPanel(logEvents);
-  }
-
-  h += '<hr class="divider">';
-  h += '<div class="section-title">Conversation</div>';
   h += '<div class="timeline">';
 
-  if (!task) {
-    h += '<div style="padding:16px;color:#475569;font-style:italic">No conversation turns — generate phase was skipped (test already existed).</div>';
-  } else {
-    // Task card
+  if (task) {
     const tt = task.content.text || '';
     const tm = tt.match(/Title: (.+)/), sm = tt.match(/Locale scope: (.+)/), em = tt.match(/Expected: (.+)/);
     h += '<div class="step"><div class="step-line"><div class="step-dot user"></div><div class="step-connector"></div></div>'
       + '<div class="step-body"><div class="role-label user">task</div>'
-      + '<div class="task-card"><div class="task-title">' + esc(tm?.[1]||'Task') + '</div><div class="task-meta">'
+      + '<div class="task-card"><div class="task-title">' + esc(tm?.[1] || label + ' task') + '</div><div class="task-meta">'
       + (sm ? '<span class="task-tag">scope: ' + esc(sm[1]) + '</span>' : '')
       + (em ? '<span class="task-tag">expected: ' + esc(em[1].slice(0,70)) + '</span>' : '')
       + '</div></div></div></div>';
   }
 
-  for (const { stepNum, text, calls } of pairs) {
+  for (const { stepNum, text, usage, calls } of pairs) {
+    const tokLabel = usage ? ' <span class="tok-label">in:' + fmtTok(usage.inputTokens) + ' out:' + fmtTok(usage.outputTokens) + '</span>' : '';
     h += '<div class="step"><div class="step-line"><div class="step-dot assistant"></div><div class="step-connector"></div></div>'
-      + '<div class="step-body"><div class="role-label assistant">step ' + stepNum + '</div>';
+      + '<div class="step-body"><div class="role-label assistant">step ' + stepNum + tokLabel + '</div>';
     if (text) h += '<div class="text-bubble">' + esc(text) + '</div>';
 
     for (const { call, result } of calls) {
@@ -422,12 +446,14 @@ function render() {
               + '<div class="file-lines">' + (rs.lines||'') + ' lines</div>';
             if (rs.content) h += '<div class="collapsible"><button class="collapsible-toggle" onclick="tog(\\''+cid+'\\')">▶ content</button>'
               + '<div class="collapsible-content" id="'+cid+'"><pre>'+esc(rs.content)+'</pre></div></div>';
-          } else if (rs?.type === 'write' || rs?.type === 'update') {
-            h += '<div class="result-status status-ok">✓ written</div>';
+          } else if (rs?.type === 'extract') {
+            h += '<div class="result-status status-ok">✓ ' + (rs.count||0) + ' elements</div>'
+              + '<div class="browse-url">' + esc(rs.url||'') + '</div>';
+          } else if (rs?.type === 'graph') {
+            h += '<div class="result-status status-ok">✓ ' + rs.pages + ' pages in graph</div>';
+          } else if (rs?.type === 'write') {
+            h += '<div class="result-status status-ok">✓ ok</div>';
             if (rs.file) h += '<div class="kv"><span class="k">file</span><span class="v write-file">'+esc(rs.file)+'</span></div>';
-            if (rs.bytes) h += '<div class="kv"><span class="k">bytes</span><span class="v">'+rs.bytes+'</span></div>';
-            if (rs.before !== undefined) h += '<div class="kv"><span class="k">before</span><span class="v">'+esc(rs.before)+'</span></div>'
-              +'<div class="kv"><span class="k">after</span><span class="v">'+esc(rs.after)+'</span></div>';
           } else if (rs?.type === 'raw') {
             h += '<div class="result-status status-ok">✓ ok</div>'
               + '<div class="collapsible"><button class="collapsible-toggle" onclick="tog(\\''+cid+'\\')">▶ output</button>'
@@ -442,9 +468,65 @@ function render() {
     }
     h += '</div></div>';
   }
-
   h += '</div>';
+  return h;
+}
+
+function render() {
+  const { meta, turns, logEvents, agents } = RUN_DATA;
+  const started = new Date(meta.startedAt).toLocaleString();
+
+  const hasPom = !!(agents?.pom?.turns?.length);
+  const hasTw  = !!(agents?.testwriter?.turns?.length);
+  const hasFix = !!(turns?.length);
+
+  let h = '';
+
+  // Header
+  h += '<div class="header"><h1>' + esc(meta.task) + '</h1><div class="meta">'
+    + '<div class="meta-item"><span class="meta-label">Run ID</span><span class="meta-value">' + esc(meta.id) + '</span></div>'
+    + '<div class="meta-item"><span class="meta-label">Model</span><span class="meta-value">' + esc(meta.model) + '</span></div>'
+    + '<div class="meta-item"><span class="meta-label">Started</span><span class="meta-value">' + esc(started) + '</span></div>'
+    + '<div class="meta-item"><span class="meta-label">Repo</span><span class="meta-value">' + esc(meta.repoRoot) + '</span></div>'
+    + '</div></div>';
+
+  // Tabs
+  h += '<div class="tabs">'
+    + '<div class="tab active" onclick="switchTab(\\'orch\\', this)">Orchestrator</div>'
+    + '<div class="tab' + (hasPom ? '' : ' disabled') + '" onclick="' + (hasPom ? "switchTab('pom', this)" : '') + '">POM Agent</div>'
+    + '<div class="tab' + (hasTw  ? '' : ' disabled') + '" onclick="' + (hasTw  ? "switchTab('tw', this)"  : '') + '">Test Writer</div>'
+    + '<div class="tab' + (hasFix ? '' : ' disabled') + '" onclick="' + (hasFix ? "switchTab('fix', this)" : '') + '">Fix Agent</div>'
+    + '</div>';
+
+  // Orchestrator tab
+  h += '<div class="tab-panel active" id="panel-orch">';
+  if (logEvents && logEvents.length > 0) h += buildOrchPanel(logEvents);
+  else h += '<div class="empty-state">No orchestrator log data.</div>';
+  h += '</div>';
+
+  // POM Agent tab
+  h += '<div class="tab-panel" id="panel-pom">';
+  h += buildTimeline(agents?.pom?.turns, 'POM Agent');
+  h += '</div>';
+
+  // Test Writer tab
+  h += '<div class="tab-panel" id="panel-tw">';
+  h += buildTimeline(agents?.testwriter?.turns, 'Test Writer');
+  h += '</div>';
+
+  // Fix Agent tab
+  h += '<div class="tab-panel" id="panel-fix">';
+  h += buildTimeline(turns, 'Fix Agent');
+  h += '</div>';
+
   document.getElementById('app').innerHTML = h;
+}
+
+function switchTab(id, el) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('panel-' + id).classList.add('active');
+  el.classList.add('active');
 }
 function tog(id) {
   const el = document.getElementById(id), btn = el.previousElementSibling;

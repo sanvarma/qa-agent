@@ -6,7 +6,6 @@ import { getProject, invalidateSourceFile } from '../../ast/project.js';
 import { resolveClass } from '../../ast/pomClassResolver.js';
 import { findMethod } from '../../ast/pomMethodLocator.js';
 import { replaceMethodBody, addMethod, MethodEditError } from '../../ast/pomMethodEditor.js';
-import { unifiedDiff } from '../../ast/diff.js';
 
 const Input = z.object({
   file: z.string().min(1),
@@ -23,12 +22,7 @@ const Input = z.object({
 type Input = z.infer<typeof Input>;
 
 interface Output {
-  file: string;
-  className: string;
-  symbolPath: string;
-  created: boolean;
-  linesChanged: { before: [number, number] | null; after: [number, number] };
-  diff: string;
+  ok: true;
 }
 
 export const pomEditMethodTool: Tool<Input, Output> = {
@@ -112,19 +106,8 @@ export const pomEditMethodTool: Tool<Input, Output> = {
         });
 
         await sf.save();
-        const afterSource = sf.getFullText();
 
-        return {
-          file: input.file,
-          className: cls.getName()!,
-          symbolPath: `${cls.getName()}.${input.name}`,
-          created: true,
-          linesChanged: {
-            before: null,
-            after: [methodNode.getStartLineNumber(), methodNode.getEndLineNumber()],
-          },
-          diff: unifiedDiff(beforeSource, afterSource, input.file),
-        };
+        return { ok: true };
       }
 
       // REPLACE path — find.status === 'found'
@@ -132,19 +115,8 @@ export const pomEditMethodTool: Tool<Input, Output> = {
       replaceMethodBody(methodNode, input.newBody);
 
       await sf.save();
-      const afterSource = sf.getFullText();
 
-      return {
-        file: input.file,
-        className: locator.className,
-        symbolPath: `${locator.className}.${locator.name}`,
-        created: false,
-        linesChanged: {
-          before: [locator.startLine, locator.endLine],
-          after: [methodNode.getStartLineNumber(), methodNode.getEndLineNumber()],
-        },
-        diff: unifiedDiff(beforeSource, afterSource, input.file),
-      };
+      return { ok: true };
     } catch (err) {
       if (err instanceof MethodEditError) {
         throw new Error(`${err.code}: ${err.message}`);

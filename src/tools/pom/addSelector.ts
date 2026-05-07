@@ -6,7 +6,6 @@ import { resolveWithinScope } from '../util/scope.js';
 import { getProject, invalidateSourceFile } from '../../ast/project.js';
 import { resolveClass } from '../../ast/pomClassResolver.js';
 import { insertPomField, InsertFieldError } from '../../ast/pomFieldInserter.js';
-import { unifiedDiff } from '../../ast/diff.js';
 
 const Input = z.object({
   file: z.string().min(1).describe(
@@ -21,12 +20,7 @@ const Input = z.object({
 type Input = z.infer<typeof Input>;
 
 interface Output {
-  file: string;
-  className: string;
-  name: string;
-  selector: string;
-  insertedAt: { startLine: number; endLine: number };
-  diff: string;
+  ok: true;
 }
 
 export const pomAddSelectorTool: Tool<Input, Output> = {
@@ -95,16 +89,8 @@ export const pomAddSelectorTool: Tool<Input, Output> = {
       });
 
       await sf.save();
-      const afterSource = sf.getFullText();
 
-      return {
-        file: input.file,
-        className: cls.getName()!,
-        name: input.name,
-        selector: input.selector,
-        insertedAt: inserted,
-        diff: unifiedDiff(beforeSource, afterSource, input.file),
-      };
+      return { ok: true };
     } catch (err) {
       if (err instanceof InsertFieldError) {
         if (err.code === 'duplicate_field') {

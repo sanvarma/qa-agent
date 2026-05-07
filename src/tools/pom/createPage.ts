@@ -24,9 +24,7 @@ const Input = z.object({
 type Input = z.infer<typeof Input>;
 
 interface Output {
-  file: string;
-  bytesWritten: number;
-  contents: string;
+  ok: true;
 }
 
 export const pomCreatePageTool: Tool<Input, Output> = {
@@ -97,7 +95,7 @@ export const pomCreatePageTool: Tool<Input, Output> = {
     await writeFile(absPath, contents, 'utf8');
     invalidateSourceFile(ctx.repoRoot, absPath);
 
-    return { file: input.file, bytesWritten: Buffer.byteLength(contents, 'utf8'), contents };
+    return { ok: true };
   },
 };
 

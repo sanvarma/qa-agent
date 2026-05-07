@@ -33,9 +33,7 @@ describe('pom.editMethod — create (method does not exist)', () => {
       repo.toolCtx,
     );
 
-    assert.equal(out.created, true);
-    assert.equal(out.symbolPath, 'LoginPage.login');
-    assert.equal(out.linesChanged.before, null);
+    assert.equal(out.ok, true);
     const disk = await readFile(pomPath, 'utf8');
     assert.match(disk, /async login\(username: string, password: string\)/);
     assert.match(disk, /await this\.emailInput\.fill\(username\)/);
@@ -53,7 +51,7 @@ describe('pom.editMethod — create (method does not exist)', () => {
       repo.toolCtx,
     );
 
-    assert.equal(out.created, true);
+    assert.equal(out.ok, true);
     const disk = await readFile(resolve(repo.repoRoot, 'src/pages/CartPage.ts'), 'utf8');
     assert.match(disk, /async proceedToCheckout\(\): Promise<void>/);
   });
@@ -86,7 +84,7 @@ describe('pom.editMethod — replace (method exists)', () => {
       repo.toolCtx,
     );
 
-    assert.equal(out.symbolPath, 'LoginPage.login');
+    assert.equal(out.ok, true);
     const disk = await readFile(pomPath, 'utf8');
     // Signature (params, return type, async) must be preserved.
     assert.match(disk, /async login\(email: string, password: string\): Promise<void>/);

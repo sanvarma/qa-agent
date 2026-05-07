@@ -29,7 +29,7 @@ import { closeAllSessions } from '../tools/browser/session.js';
 
 import { findTestAcrossSpecs } from '../ast/testScanner.js';
 import { generateRunViewerHtml } from '../agent/runViewer.js';
-import { writeFile } from 'node:fs/promises';
+import { writeFile, readFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import type { TestCase } from './testCase.js';
 import type { AgentLogger } from './logger.js';
@@ -156,8 +156,18 @@ export async function runOrchestrator(
       }
     }
     try {
-      const html = generateRunViewerHtml(deps.conversationLog.meta, deps.conversationLog.turns, deps.agentLogger.events);
-      await writeFile(join(deps.conversationLog.dir, 'run-viewer.html'), html, 'utf8');
+      const dir = deps.conversationLog.dir;
+      const readAgent = async (sub: string) => {
+        try { return JSON.parse(await readFile(join(dir, sub, 'run.json'), 'utf8')); } catch { return undefined; }
+      };
+      const [pomData, twData] = await Promise.all([readAgent('pom'), readAgent('testwriter')]);
+      const html = generateRunViewerHtml(
+        deps.conversationLog.meta,
+        deps.conversationLog.turns,
+        deps.agentLogger.events,
+        { pom: pomData, testwriter: twData },
+      );
+      await writeFile(join(dir, 'run-viewer.html'), html, 'utf8');
     } catch {
       // non-fatal: viewer generation failure shouldn't break the run
     }

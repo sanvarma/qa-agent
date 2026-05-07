@@ -6,7 +6,6 @@ import { getProject, invalidateSourceFile } from '../../ast/project.js';
 import { resolveClass } from '../../ast/pomClassResolver.js';
 import { findSelectorField } from '../../ast/pomSelectorLocator.js';
 import { replaceSelectorStringArg } from '../../ast/pomSelectorEditor.js';
-import { unifiedDiff } from '../../ast/diff.js';
 
 const Input = z.object({
   file: z.string().min(1).describe('Path relative to repo root; must resolve under paths.pages'),
@@ -17,14 +16,7 @@ const Input = z.object({
 type Input = z.infer<typeof Input>;
 
 interface Output {
-  file: string;
-  className: string;
-  name: string;
-  method: string;            // the locator method, e.g. "locator" or "getByTestId"
-  before: string;            // previous selector string
-  after: string;             // new selector string
-  linesChanged: { before: [number, number]; after: [number, number] };
-  diff: string;
+  ok: true;
 }
 
 export const pomUpdateSelectorTool: Tool<Input, Output> = {
@@ -111,44 +103,12 @@ export const pomUpdateSelectorTool: Tool<Input, Output> = {
     const before = locator.currentSelector;
 
     if (before === input.newSelector) {
-      // Idempotent no-op. Still return a valid result so the LLM sees it worked.
-      return {
-        file: input.file,
-        className: locator.className,
-        name: locator.name,
-        method: locator.method,
-        before,
-        after: input.newSelector,
-        linesChanged: {
-          before: [locator.startLine, locator.endLine],
-          after: [locator.startLine, locator.endLine],
-        },
-        diff: '',
-      };
+      return { ok: true };
     }
 
     replaceSelectorStringArg(callNode, input.newSelector);
     await sf.save();
-    const afterSource = sf.getFullText();
 
-    // Recompute bounds after edit.
-    // The property node didn't move vertically (single-line swap), but we
-    // recompute to be correct for multi-line selector strings.
-    const afterStart = find.propertyNode.getStartLineNumber();
-    const afterEnd = find.propertyNode.getEndLineNumber();
-
-    return {
-      file: input.file,
-      className: locator.className,
-      name: locator.name,
-      method: locator.method,
-      before,
-      after: input.newSelector,
-      linesChanged: {
-        before: [locator.startLine, locator.endLine],
-        after: [afterStart, afterEnd],
-      },
-      diff: unifiedDiff(beforeSource, afterSource, input.file),
-    };
+    return { ok: true };
   },
 };
