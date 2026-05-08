@@ -56,24 +56,19 @@ When fixing a selector or method:
     After login or a form submit, Playwright's auto-waiting is sufficient. The next step (goto() or a POM interaction) handles navigation implicitly.
   - When action == 'update_pom' and the error is a STRICT MODE VIOLATION ("resolved to N elements"):
     The error message lists every matched element with its actual attributes — read them carefully.
-    Narrow the selector using an attribute shown in the error (e.g. data-qa, name, placeholder)
+    Narrow the selector using an attribute shown in the error (e.g. data-testid, data-test, id, name, placeholder)
     that uniquely identifies the correct element. No browsing needed — the answer is in the error output.
-    Example: error shows login-email input has data-qa="login-email" → use input[data-qa="login-email"].
+    Example: error shows element has data-testid="submit-btn" → use [data-testid="submit-btn"].
   - When action == 'update_pom' and the error is "no element found" (0 matches, or locator timeout):
-    First check if the failing page requires authentication or specific app state
-    (cart, checkout, payment, order confirmation, account pages).
-    AUTH-GATED / STATEFUL pages — do NOT browse to these; you cannot authenticate or populate state:
-      cart (/view_cart), checkout (/checkout), payment, order confirmation, account, profile.
+    First check if the failing page requires authentication or specific app state.
+    AUTH-GATED / STATEFUL pages — do NOT browse to these; you cannot authenticate or populate state.
       Instead apply a structural fix directly:
         • Navigation links (name ends in Link/Button, selector starts with 'a'): replace with a[href*='<keyword>'].
-          Keyword examples: cart→'cart', checkout→'checkout', login→'login', products→'products'.
-          'Proceed To Checkout' link → a[href*='checkout']
-          'View Cart' link → a[href*='cart']
-          'Continue Shopping' link → a[href*='products']
-        • Form submit buttons: replace with button[type='submit'].
+          Derive the keyword from the field name — e.g. dashboardLink→'dashboard', profileButton→'profile'.
+        • Form submit buttons: replace with button[type='submit'] or input[type='submit'].
         • If the field type is neither of the above, fs.read the POM and apply the most specific
           structural selector you can derive from the field name and context.
-    PUBLIC pages (login, products list, product detail) — browse.navigate then browse.snapshot to find the correct selector.
+    PUBLIC pages (pages reachable without login) — browse.navigate then browse.snapshot to find the correct selector.
     Do not guess data-* attribute values — use href-patterns or type-based selectors for auth-gated pages.
   - Make the smallest correct change. Do not refactor unrelated code.
 

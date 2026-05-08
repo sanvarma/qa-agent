@@ -95,7 +95,7 @@ async function loadCredentials(
 
 export const DOM_WALKER_SCRIPT = `
 (function() {
-  var PRIORITY = ['data-qa', 'data-testid', 'id', 'name', 'type', 'href', 'placeholder', 'aria-label'];
+  var PRIORITY = ['data-qa', 'data-testid', 'data-test', 'id', 'name', 'type', 'href', 'placeholder', 'aria-label'];
 
   function buildSelectors(el) {
     var tag = el.tagName.toLowerCase();
@@ -103,6 +103,7 @@ export const DOM_WALKER_SCRIPT = `
 
     var dataQa = el.getAttribute('data-qa');
     var dataTestid = el.getAttribute('data-testid');
+    var dataTest = el.getAttribute('data-test');
     var id = el.id;
     var name = el.getAttribute('name');
     var type = el.getAttribute('type');
@@ -112,6 +113,7 @@ export const DOM_WALKER_SCRIPT = `
 
     if (dataQa)     s['data-qa']     = tag + "[data-qa='" + dataQa + "']";
     if (dataTestid) s['data-testid'] = tag + "[data-testid='" + dataTestid + "']";
+    if (dataTest)   s['data-test']   = tag + "[data-test='" + dataTest + "']";
     if (id && !/\\d{3,}/.test(id)) s['id'] = '#' + id;
     if (name)        s['name']        = tag + "[name='" + name + "']";
     if (type && type !== 'hidden') s['type'] = tag + "[type='" + type + "']";
@@ -170,13 +172,20 @@ async function walkDOM(page: Page): Promise<ExtractedElement[]> {
 // ---------------------------------------------------------------------------
 
 async function performLogin(page: Page, baseUrl: string, creds: { username: string; password: string }) {
-  await page.goto(`${baseUrl}/login`);
-  await page.waitForLoadState('networkidle');
+  // Try root first (some apps have login at /), then /login
+  for (const path of ['/', '/login']) {
+    await page.goto(`${baseUrl}${path}`);
+    await page.waitForLoadState('networkidle');
+    if (await page.$('input[type="email"], input[type="password"], input[type="text"]')) break;
+  }
 
-  // Try data-qa selectors first, then type-based fallbacks
-  const emailSel = await page.$('[data-qa="login-email"]') ? '[data-qa="login-email"]' : 'input[type="email"]';
-  const passSel  = await page.$('[data-qa="login-password"]') ? '[data-qa="login-password"]' : 'input[type="password"]';
-  const btnSel   = await page.$('[data-qa="login-button"]') ? '[data-qa="login-button"]' : 'button[type="submit"]';
+  const emailSel =
+    await page.$('input[type="email"]')  ? 'input[type="email"]'  :
+    'input[type="text"]';
+  const passSel = 'input[type="password"]';
+  const btnSel =
+    await page.$('button[type="submit"]') ? 'button[type="submit"]' :
+    'input[type="submit"]';
 
   await page.fill(emailSel, creds.username);
   await page.fill(passSel, creds.password);
@@ -185,19 +194,15 @@ async function performLogin(page: Page, baseUrl: string, creds: { username: stri
 }
 
 async function addProductToCart(page: Page, baseUrl: string) {
-  await page.goto(`${baseUrl}/products`);
-  await page.waitForLoadState('networkidle');
-  // Click first "View Product" link
-  const link = page.locator('a[href*="product"]').first();
-  await link.click();
-  await page.waitForLoadState('networkidle');
-  // Click "Add to cart"
-  const addBtn = page.locator('[data-qa="add-to-cart-button"], button:has-text("Add to cart")').first();
-  await addBtn.click();
-  await page.waitForTimeout(500);
-  // Dismiss any modal
-  const continueBtn = page.locator('button:has-text("Continue Shopping")');
-  if (await continueBtn.isVisible().catch(() => false)) await continueBtn.click();
+  // Find and click the first visible add-to-cart button on the current page
+  const addBtn = page.locator('button:has-text("Add to cart"), button:has-text("Add To Cart"), [class*="add-to-cart"]').first();
+  if (await addBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    await addBtn.click();
+    await page.waitForTimeout(500);
+    // Dismiss any post-add modal
+    const dismissBtn = page.locator('button:has-text("Continue"), button:has-text("Close"), [aria-label="Close"]').first();
+    if (await dismissBtn.isVisible({ timeout: 1000 }).catch(() => false)) await dismissBtn.click();
+  }
 }
 
 async function runSetupFlow(page: Page, baseUrl: string, flow: SetupFlow, creds: { username: string; password: string }) {
@@ -208,26 +213,25 @@ async function runSetupFlow(page: Page, baseUrl: string, flow: SetupFlow, creds:
     case 'cart':
       await performLogin(page, baseUrl, creds);
       await addProductToCart(page, baseUrl);
-      await page.goto(`${baseUrl}/view_cart`);
+      await page.locator('a[href*="cart"], [class*="cart"] a, [aria-label*="cart" i]').first().click();
       await page.waitForLoadState('networkidle');
       break;
     case 'checkout':
       await performLogin(page, baseUrl, creds);
       await addProductToCart(page, baseUrl);
-      await page.goto(`${baseUrl}/view_cart`);
+      await page.locator('a[href*="cart"], [class*="cart"] a, [aria-label*="cart" i]').first().click();
       await page.waitForLoadState('networkidle');
-      await page.locator('a[href*="checkout"]').first().click();
+      await page.locator('a[href*="checkout"], button:has-text("Checkout")').first().click();
       await page.waitForLoadState('networkidle');
       break;
     case 'payment':
       await performLogin(page, baseUrl, creds);
       await addProductToCart(page, baseUrl);
-      await page.goto(`${baseUrl}/view_cart`);
+      await page.locator('a[href*="cart"], [class*="cart"] a, [aria-label*="cart" i]').first().click();
       await page.waitForLoadState('networkidle');
-      await page.locator('a[href*="checkout"]').first().click();
+      await page.locator('a[href*="checkout"], button:has-text("Checkout")').first().click();
       await page.waitForLoadState('networkidle');
-      // Place order to reach payment page
-      const placeOrder = page.locator('a:has-text("Place Order"), button:has-text("Place Order")').first();
+      const placeOrder = page.locator('button[type="submit"], input[type="submit"]').first();
       if (await placeOrder.isVisible().catch(() => false)) await placeOrder.click();
       await page.waitForLoadState('networkidle');
       break;

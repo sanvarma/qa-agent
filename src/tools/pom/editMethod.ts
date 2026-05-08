@@ -50,6 +50,9 @@ export const pomEditMethodTool: Tool<Input, Output> = {
   },
 
   async run(input, ctx) {
+    // Strip markdown link syntax that LLMs occasionally emit: [text](url) → text
+    const body = input.newBody.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
+
     const absPath = resolveWithinScope(input.file, 'pages', ctx);
     const beforeSource = await readFile(absPath, 'utf8');
 
@@ -102,7 +105,7 @@ export const pomEditMethodTool: Tool<Input, Output> = {
           params: input.params ?? '',
           isAsync: input.isAsync ?? true,
           returnType: input.returnType ?? 'Promise<void>',
-          body: input.newBody,
+          body,
         });
 
         await sf.save();
@@ -112,7 +115,7 @@ export const pomEditMethodTool: Tool<Input, Output> = {
 
       // REPLACE path — find.status === 'found'
       const { locator, methodNode } = find;
-      replaceMethodBody(methodNode, input.newBody);
+      replaceMethodBody(methodNode, body);
 
       await sf.save();
 

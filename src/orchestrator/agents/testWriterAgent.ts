@@ -55,7 +55,7 @@ FIXTURES: import { test, expect } comes from pages.fixture.ts (test.createSpec h
 METHODS: If the POM graph shows a method for a multi-step action (e.g. login()), call it — never inline fill/click sequences.
 ASSERTIONS: Assert what 'Expected' describes. Never write trivial title checks. toBeGreaterThan(0) not toBeGreaterThan({ min: 0 }).
 BODY: Write only statements — no surrounding function signature or braces.
-  Start with: await <fixtureName>.goto();
+  Do NOT call goto() — the fixture auto-navigates to baseURL before the test starts.
 BATCH: Combine independent tool calls in one response. Stop after test.addCase succeeds.`;
 
 // ---------------------------------------------------------------------------
@@ -81,7 +81,7 @@ function buildTestWriterTask(tc: TestCase, specFile: string, locale: string | nu
     `     ${locale ? 'Pass serial:true (locale-specific specs are always serial).' : 'No serial:true needed for generic specs.'}`,
     '  5. Call test.addCase with the test body.',
     '     fixtures[]: list every page fixture the body uses, plus "testData" if credentials are used.',
-    '     body: statements only — start with await <fixtureName>.goto()',
+    '     body: statements only — do NOT call goto(), the fixture handles navigation automatically.',
     '  6. Stop.',
   ].join('\n');
 }
@@ -91,15 +91,13 @@ function buildTestWriterTask(tc: TestCase, specFile: string, locale: string | nu
 // ---------------------------------------------------------------------------
 
 const SPEC_KEYWORDS: Array<[RegExp, string]> = [
-  [/register|sign.?up|signup/i, 'auth'],
-  [/log.?in|sign.?in|logout|sign.?out/i, 'auth'],
-  [/password|credential/i, 'auth'],
-  [/cart|basket|add.to.cart|remove.from.cart/i, 'cart'],
-  [/checkout|payment|order|purchase/i, 'checkout'],
-  [/product|search|filter|categor/i, 'products'],
-  [/contact|form|submit/i, 'contact'],
-  [/home|landing|hero/i, 'home'],
-  [/profile|account|settings/i, 'account'],
+  [/register|sign.?up|signup|log.?in|sign.?in|logout|sign.?out|password|credential/i, 'auth'],
+  [/cart|basket|bag|wishlist/i, 'cart'],
+  [/checkout|payment|order|purchase|billing|shipping/i, 'checkout'],
+  [/product|search|filter|categor|listing|catalog/i, 'products'],
+  [/contact|form|submit|enquir/i, 'forms'],
+  [/home|landing|hero|dashboard/i, 'home'],
+  [/profile|account|settings|preference/i, 'account'],
 ];
 
 function inferSpecFile(tc: TestCase, locale: string | null): string {

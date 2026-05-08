@@ -19,7 +19,7 @@ describe('test.createSpec — success', () => {
     assert.ok(out.bytesWritten > 0);
 
     const disk = await readFile(resolve(repo.repoRoot, 'tests/new.spec.ts'), 'utf8');
-    assert.match(disk, /import \{ test, expect \} from '@playwright\/test'/);
+    assert.match(disk, /import \{ test, expect \} from '.*pages\.fixture'/);
   });
 
   test('includes a describe block when requested', async () => {
