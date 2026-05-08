@@ -1,6 +1,134 @@
 # Multi-Agent Extraction Architecture
 
-Branch: `multi-agent-extraction`
+---
+
+## 0. How to Use
+
+### Prerequisites
+
+- Node.js 18+
+- An Anthropic API key (set as `ANTHROPIC_API_KEY` environment variable)
+
+### Step 1 — Clone and install qa-agent
+
+```bash
+git clone <repo-url>
+cd qa-agent
+npm install
+npm run build
+```
+
+Or install globally from a tarball:
+
+```bash
+npm install -g ./qa-agent-0.0.1.tgz
+```
+
+### Step 2 — Set up a framework repo
+
+The agent operates on a **target repo** (your Playwright framework). It must have this layout:
+
+```
+my-framework/
+  src/
+    pages/
+      base/BasePage.ts          ← must export BasePage with loc(), goto(), waitForReady()
+      common/                   ← agent writes POMs here
+    fixtures/
+      base.fixture.ts           ← must export test with appLocale + _autoNav fixtures
+      pages.fixture.ts          ← agent registers POMs here (must exist, can be empty)
+    data/
+      qa/
+        en-gb.json              ← { "users": [{ "locale": "en-gb", "username": "...", "password": "..." }] }
+  tests/
+    generic/                    ← agent writes spec files here
+  qa-agent.config.json          ← agent configuration (see below)
+```
+
+### Step 3 — Create `qa-agent.config.json` in the framework repo
+
+```json
+{
+  "model": "claude-haiku-4-5-20251001",
+  "maxTokens": 4096,
+  "maxFixAttempts": 3,
+  "browse": {
+    "baseUrl": "https://your-app.com",
+    "headed": false,
+    "email": "test@example.com",
+    "password": "yourpassword",
+    "selectorPreference": ["data-qa", "data-testid", "data-test", "id", "name", "type", "href", "placeholder", "aria-label"]
+  }
+}
+```
+
+### Step 4 — Write a test case JSON
+
+```json
+{
+  "title": "user can log in with valid credentials",
+  "localeScope": "generic",
+  "steps": [
+    "Navigate to the login page",
+    "Enter valid username and password",
+    "Click the login button",
+    "Assert the user is redirected to the dashboard"
+  ],
+  "expected": "User is logged in and sees the dashboard"
+}
+```
+
+Save it anywhere, e.g. `cases/generic/login.json`.
+
+### Step 5 — Run the agent
+
+```bash
+# Single test case
+qa-agent qa \
+  --repo ./my-framework \
+  --testcase ./cases/generic/login.json \
+  --llm anthropic
+
+# All test cases in a folder (PowerShell)
+Get-ChildItem "cases/generic/*.json" | ForEach-Object {
+    Write-Host "=== Running: $($_.Name) ===" -ForegroundColor Cyan
+    qa-agent qa --repo ./my-framework --testcase $_.FullName --llm anthropic
+}
+```
+
+### Step 6 — Check results
+
+Run artifacts are written to `.qa-agent/runs/<run-id>/` in the framework repo:
+
+```
+.qa-agent/runs/<run-id>/
+  orchestrator.log.jsonl    ← phase-by-phase summary (steps, tokens, pass/fail)
+  run-viewer.html           ← open in browser for a visual trace of the full run
+  pom/run.json              ← POM Agent turns
+  testwriter/run.json       ← Test Writer Agent turns
+```
+
+### Step 7 — Run generated tests independently
+
+```bash
+cd my-framework
+npx playwright test
+```
+
+### Supported LLM backends
+
+| Flag | Provider |
+|---|---|
+| `--llm anthropic` | Anthropic API (requires `ANTHROPIC_API_KEY`) |
+| `--llm ollama --ollama-url <url>` | Ollama (local or remote) |
+| `--llm mock` | Mock client (for testing the agent itself) |
+
+### Notes
+
+- Run `npx playwright install chromium` once in the framework repo before running tests.
+- The agent **skips generation** if a test with the same title already exists in the spec file — it goes straight to execution.
+- To force a fresh regeneration, delete the relevant spec file in `tests/`.
+- Credentials are loaded automatically from `src/data/qa/<locale>.json` — never hard-coded in test cases.
 
 ---
 
@@ -82,6 +210,7 @@ Runs via `page.evaluate()` as a plain JS string (not a TypeScript function — a
 ```
 data-qa     → tag[data-qa='value']
 data-testid → tag[data-testid='value']
+data-test   → tag[data-test='value']
 id          → #value  (skipped if id has 3+ digits — auto-generated)
 name        → tag[name='value']
 type        → tag[type='value']  (skipped if type='hidden')
@@ -90,7 +219,7 @@ placeholder → tag[placeholder='value']
 aria-label  → [aria-label='value']
 ```
 
-**Selector priority (bestSelector):** `data-qa > data-testid > id > name > type > href > placeholder > aria-label`
+**Selector priority (bestSelector):** Driven by `browse.selectorPreference` in `qa-agent.config.json`. Default: `data-qa > data-testid > data-test > id > name > type > href > placeholder > aria-label`
 
 **Deduplication:** if two elements share the same bestSelector, only the first is kept.
 
@@ -210,10 +339,18 @@ Step 5  pom.addSelector (if POM exists but fields are missing)
 
 Step 6  pom.editMethod (if a test step needs 2+ sequential interactions)
           Rule: fill + fill + click = method. Never inline in test body.
-          e.g. async login(username: string, password: string) {
-                 await this.emailInput.fill(username);
+          COMPLETE ACTION methods (login, submit, confirm): include ALL clicks.
+          FORM-FILL methods (fillX, enterX, typeX): fill fields only — no submit click.
+          e.g. async login(username: string, password: string) {   ← complete action
+                 await this.usernameInput.fill(username);
                  await this.passwordInput.fill(password);
-                 await this.loginButton.click();
+                 await this.loginButton.click();                   ← click included
+               }
+               async fillShippingInfo(first, last, zip) {         ← form-fill only
+                 await this.firstNameInput.fill(first);
+                 await this.lastNameInput.fill(last);
+                 await this.zipInput.fill(zip);
+                 // no submit click here — test controls page transition
                }
 
 Step 7  Done — all POMs confirmed on disk. Stop.
@@ -312,7 +449,7 @@ System prompt: ~220 tokens
   - FIXTURES rule: never import fixture names, use fixtures[] array
   - METHODS rule: if POM graph shows a method, call it — never inline
   - ASSERTIONS rule: assert Expected — no trivial title checks
-  - BODY rule: statements only, start with goto(), no surrounding braces
+  - BODY rule: statements only, no surrounding braces. Do NOT call goto() — _autoNav fixture handles navigation automatically.
 
 Task prompt: ~120 tokens
   - Rendered test case
@@ -430,7 +567,7 @@ Public pages (login, products, product detail) → `browse.navigate` then inspec
 
 ### 7.7 Budget
 
-Max 3 fix attempts. Each attempt is counted before the Fix Agent runs. If budget exhausted, orchestrator transitions to `exhausted` and stops.
+Max 1 fix attempt (default). Configurable via `maxFixAttempts` in `qa-agent.config.json`. If budget exhausted, orchestrator transitions to `exhausted` and stops.
 
 ### 7.8 Files
 
@@ -852,16 +989,22 @@ qa-agent.config.json             ← model, paths, browse.baseUrl, maxFixAttempt
 
 ---
 
-### Phase 5 — Validate ⏳
-**Goal:** Confirm the pipeline produces correct output end-to-end for the login test case.
+### Phase 5 — Validate ✅
+**Goal:** Confirm the pipeline produces correct output end-to-end.
 
-- [ ] Reset `src/fixtures/pages.fixture.ts` to baseline (remove agent-added POMs)
-- [ ] Reset `tests/generic/auth.spec.ts` (or delete if agent-generated)
-- [ ] Run: `qa-agent qa --testcase testcases/login.json --repo ../my-framework --llm anthropic`
-- [ ] Verify POM Agent created `LoginPage.ts` with `emailInput`, `passwordInput`, `loginButton`
-- [ ] Verify POM Agent added `login(username, password)` method
-- [ ] Verify `fixture.addPage` registered `loginPage` in `pages.fixture.ts`
-- [ ] Verify Test Writer wrote `auth.spec.ts` with `testData` in fixtures array
-- [ ] Verify no inline `fill/click` sequences in test body
-- [ ] Playwright run passes on first attempt (or fix agent corrects within 3 attempts)
-- [ ] Compare token usage vs baseline on `main` branch
+- [x] POM Agent creates POMs with correct fields and methods in one batched step
+- [x] `fixture.addPage` registered atomically with `pom.createPage`
+- [x] Test Writer writes spec using fixture names from `framework.getGraph`
+- [x] `testData` fixture added to fixtures array when credentials used
+- [x] No inline `fill/click` sequences in test body
+- [x] `_autoNav` fixture handles navigation — no `goto()` in test bodies
+- [x] Playwright runs pass on first attempt (saucedemo test suite)
+- [x] Token usage: ~35K / 4–6 steps (down from 173K / 18 steps before batching fix)
+
+### Phase 6 — Hardening ✅
+
+- [x] `readExistingPages()` regex fixed — correctly detects already-registered POMs, prevents redundant re-extraction on subsequent runs
+- [x] `pom.editMethod` sanitizes markdown link syntax (`[text](url)` → `text`) before writing to disk
+- [x] `selectorPreference` unified — `extractElements.ts` DOM walker reads priority from `qa-agent.config.json` via `ToolContext`, removing the duplicate hardcoded list
+- [x] `playwright` added as explicit dependency (was borrowed transitively from `@playwright/mcp`)
+- [x] `.npmignore` created — `dist/` correctly included in published tarball

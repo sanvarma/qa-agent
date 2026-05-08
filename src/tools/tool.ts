@@ -15,6 +15,8 @@ export interface ToolContext {
     pages: string;
     tests: string;
   };
+  // Selector priority order from qa-agent.config.json browse.selectorPreference
+  selectorPreference?: string[];
 }
 
 export interface Tool<I, O> {

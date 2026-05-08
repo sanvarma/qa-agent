@@ -179,7 +179,7 @@ async function runGeneric(args: RunArgs): Promise<void> {
         'You are a QA automation agent. Use the provided tools to inspect the repo. ' +
         'Prefer small, targeted reads. Stop as soon as the task is complete.',
     },
-    { llm, tools, toolCtx: { repoRoot, runDir, paths: cfg.paths }, state },
+    { llm, tools, toolCtx: { repoRoot, runDir, paths: cfg.paths, selectorPreference: cfg.browse?.selectorPreference }, state },
   );
 
   await state.persist();
@@ -227,7 +227,7 @@ async function runQa(args: QaArgs): Promise<void> {
     },
     {
       llm,
-      toolCtx: { repoRoot, runDir, paths: cfg.paths },
+      toolCtx: { repoRoot, runDir, paths: cfg.paths, selectorPreference: cfg.browse?.selectorPreference },
       conversationLog: runState,
       agentLogger: logger,
     },

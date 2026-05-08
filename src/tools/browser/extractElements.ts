@@ -94,8 +94,7 @@ async function loadCredentials(
 // ---------------------------------------------------------------------------
 
 export const DOM_WALKER_SCRIPT = `
-(function() {
-  var PRIORITY = ['data-qa', 'data-testid', 'data-test', 'id', 'name', 'type', 'href', 'placeholder', 'aria-label'];
+(function(PRIORITY) {
 
   function buildSelectors(el) {
     var tag = el.tagName.toLowerCase();
@@ -160,11 +159,13 @@ export const DOM_WALKER_SCRIPT = `
     }
 
     return results;
-  })()
+  })
 `;
 
-async function walkDOM(page: Page): Promise<ExtractedElement[]> {
-  return page.evaluate(DOM_WALKER_SCRIPT) as Promise<ExtractedElement[]>;
+const DEFAULT_PRIORITY = ['data-qa', 'data-testid', 'data-test', 'id', 'name', 'type', 'href', 'placeholder', 'aria-label'];
+
+async function walkDOM(page: Page, priority: string[]): Promise<ExtractedElement[]> {
+  return page.evaluate(DOM_WALKER_SCRIPT, priority) as Promise<ExtractedElement[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -292,7 +293,8 @@ export const extractElementsTool: Tool<Input, ExtractElementsOutput> = {
         await page.waitForLoadState('networkidle');
       }
 
-      const elements = await walkDOM(page);
+      const priority = ctx.selectorPreference ?? DEFAULT_PRIORITY;
+      const elements = await walkDOM(page, priority);
 
       return { url: page.url(), elements };
     } finally {
