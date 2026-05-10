@@ -1,9 +1,10 @@
 import { z } from 'zod';
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
+import { existsSync } from 'node:fs';
 import { chromium } from 'playwright';
 import type { Page, Browser } from 'playwright';
-import type { Tool } from '../tool.js';
+import type { Tool, ToolContext } from '../tool.js';
 
 // ---------------------------------------------------------------------------
 // Input schema
@@ -23,6 +24,11 @@ const Input = z.object({
   ),
   locale: z.string().optional().describe(
     "Locale key to pick credentials from testData, e.g. 'en-gb'. Defaults to first record found.",
+  ),
+  filter: z.string().optional().describe(
+    'Case-insensitive substring to filter returned elements. ' +
+    'Only elements whose text content, bestSelector, or any selector value contains this string are returned. ' +
+    'Use when you are looking for a specific element and want to reduce noise.',
   ),
 });
 type Input = z.infer<typeof Input>;
@@ -165,7 +171,35 @@ export const DOM_WALKER_SCRIPT = `
 const DEFAULT_PRIORITY = ['data-qa', 'data-testid', 'data-test', 'id', 'name', 'type', 'href', 'placeholder', 'aria-label'];
 
 async function walkDOM(page: Page, priority: string[]): Promise<ExtractedElement[]> {
-  return page.evaluate(DOM_WALKER_SCRIPT, priority) as Promise<ExtractedElement[]>;
+  // DOM_WALKER_SCRIPT is a function expression `(function(PRIORITY){...})`.
+  // page.evaluate with a string just evaluates the expression — it does NOT call
+  // the function or pass the arg. Convert to an IIFE by appending the call with
+  // priority embedded directly so it runs immediately inside the browser.
+  const iife = `(${DOM_WALKER_SCRIPT.trim()})(${JSON.stringify(priority)})`;
+  return (page.evaluate(iife) as Promise<ExtractedElement[]>) ?? [];
+}
+
+// ---------------------------------------------------------------------------
+// POM selector reader — reads a field selector from an existing common POM
+// ---------------------------------------------------------------------------
+
+export async function readFieldSelector(repoRoot: string, pomName: string, fieldName: string): Promise<string | null> {
+  const pomPath = join(repoRoot, 'src', 'pages', 'common', `${pomName}.ts`);
+  if (!existsSync(pomPath)) return null;
+  try {
+    const content = await readFile(pomPath, 'utf8');
+    // Match: readonly <fieldName> = this.loc("<selector>"); or this.loc('<selector>');
+    // Use alternation so single-quoted selectors can contain double quotes and vice versa.
+    const re = new RegExp(
+      `readonly\\s+${fieldName}\\s*=\\s*this\\.loc\\(` +
+      `(?:"([^"]+)"|'([^']+)')` +
+      `\\)`,
+    );
+    const m = re.exec(content);
+    return m ? (m[1] ?? m[2] ?? null) : null;
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -206,7 +240,61 @@ async function addProductToCart(page: Page, baseUrl: string) {
   }
 }
 
-async function runSetupFlow(page: Page, baseUrl: string, flow: SetupFlow, creds: { username: string; password: string }) {
+async function runConfigFlow(
+  page: Page,
+  baseUrl: string,
+  steps: Array<{ action: string; selector?: string; pom?: string; field?: string; url?: string }>,
+  creds: { username: string; password: string },
+  repoRoot: string,
+): Promise<void> {
+  for (const step of steps) {
+    switch (step.action) {
+      case 'login':
+        await performLogin(page, baseUrl, creds);
+        break;
+      case 'navigate': {
+        const url = step.url!.startsWith('http') ? step.url! : `${baseUrl}${step.url}`;
+        await page.goto(url);
+        await page.waitForLoadState('networkidle');
+        break;
+      }
+      case 'click': {
+        let selector = step.selector;
+        // If pom+field given, try to read selector from existing POM file
+        if (!selector && step.pom && step.field) {
+          selector = await readFieldSelector(repoRoot, step.pom, step.field) ?? undefined;
+        }
+        if (!selector) throw new Error(`click step missing selector — pom '${step.pom}' field '${step.field}' not found on disk yet`);
+        await page.locator(selector).first().click();
+        await page.waitForLoadState('networkidle');
+        break;
+      }
+    }
+  }
+}
+
+async function runSetupFlow(page: Page, baseUrl: string, flow: SetupFlow, creds: { username: string; password: string }, ctx: ToolContext) {
+  // Use config-driven flow if defined
+  const configFlow = ctx.setupFlows?.[flow];
+  if (configFlow && configFlow.length > 0) {
+    try {
+      await runConfigFlow(page, baseUrl, configFlow, creds, ctx.repoRoot);
+      return;
+    } catch (err) {
+      // Config flow failed — typically because it references POM fields that
+      // don't exist on disk yet during bootstrap (POM agent creating pages
+      // for the first time). Fall through to the built-in generic flow so
+      // extraction can still proceed.
+      console.warn(
+        `[extractElements] Config setupFlow '${flow}' failed: ${(err as Error).message}. ` +
+        `Falling back to built-in generic flow.`,
+      );
+      // Reset page to a clean state before the fallback flow takes over.
+      try { await page.goto(baseUrl); } catch { /* ignore */ }
+    }
+  }
+
+  // Fall back to built-in generic sequences
   switch (flow) {
     case 'account':
       await performLogin(page, baseUrl, creds);
@@ -262,6 +350,12 @@ export const extractElementsTool: Tool<Input, ExtractElementsOutput> = {
         description: 'Predefined flow to reach state-dependent pages',
       },
       locale: { type: 'string', description: "Locale key for credentials, e.g. 'en-gb'" },
+      filter: {
+        type: 'string',
+        description:
+          'Case-insensitive substring to filter returned elements. ' +
+          'Only elements whose text, bestSelector, or any selector value contains this string are returned.',
+      },
     },
     required: ['url'],
     additionalProperties: false,
@@ -281,7 +375,7 @@ export const extractElementsTool: Tool<Input, ExtractElementsOutput> = {
 
       if (input.setupFlow) {
         if (!creds) throw new Error('setupFlow requires credentials but none found in src/data/');
-        await runSetupFlow(page, baseUrl, input.setupFlow, creds);
+        await runSetupFlow(page, baseUrl, input.setupFlow, creds, ctx);
         // After setup flow, navigate to the target URL if different from flow's end page
         const currentUrl = page.url();
         if (!currentUrl.includes(parsed.pathname)) {
@@ -294,7 +388,16 @@ export const extractElementsTool: Tool<Input, ExtractElementsOutput> = {
       }
 
       const priority = ctx.selectorPreference ?? DEFAULT_PRIORITY;
-      const elements = await walkDOM(page, priority);
+      let elements = await walkDOM(page, priority);
+
+      if (input.filter) {
+        const needle = input.filter.toLowerCase();
+        elements = elements.filter((el) => {
+          if (el.text.toLowerCase().includes(needle)) return true;
+          if (el.bestSelector?.toLowerCase().includes(needle)) return true;
+          return Object.values(el.selectors).some((v) => v.toLowerCase().includes(needle));
+        });
+      }
 
       return { url: page.url(), elements };
     } finally {

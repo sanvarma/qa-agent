@@ -1,0 +1,68 @@
+- generic [ref=e30]:
+  - generic [ref=e31]:
+    - generic [ref=e32]:
+      - generic [ref=e33]:
+        - generic [ref=e34]:
+          - button "Open Menu" [ref=e35] [cursor=pointer]
+          - img "Open Menu" [ref=e36]
+        - generic [ref=e38]: Swag Labs
+      - generic [ref=e41]:
+        - generic [ref=e42]: Products
+        - generic [ref=e44] [cursor=pointer]:
+          - generic [ref=e45]: Name (A to Z)
+          - combobox [ref=e46]
+    - generic [ref=e50]:
+      - generic [ref=e51]:
+        - link "Sauce Labs Backpack" [ref=e53] [cursor=pointer]:
+          - /url: "#"
+          - img "Sauce Labs Backpack" [ref=e54]
+        - generic [ref=e55]:
+          - generic [ref=e56]
+          - generic [ref=e60]
+      - generic [ref=e63]:
+        - link "Sauce Labs Bike Light" [ref=e65] [cursor=pointer]:
+          - /url: "#"
+          - img "Sauce Labs Bike Light" [ref=e66]
+        - generic [ref=e67]:
+          - generic [ref=e68]
+          - generic [ref=e72]
+      - generic [ref=e75]:
+        - link "Sauce Labs Bolt T-Shirt" [ref=e77] [cursor=pointer]:
+          - /url: "#"
+          - img "Sauce Labs Bolt T-Shirt" [ref=e78]
+        - generic [ref=e79]:
+          - generic [ref=e80]
+          - generic [ref=e84]
+      - generic [ref=e87]:
+        - link "Sauce Labs Fleece Jacket" [ref=e89] [cursor=pointer]:
+          - /url: "#"
+          - img "Sauce Labs Fleece Jacket" [ref=e90]
+        - generic [ref=e91]:
+          - generic [ref=e92]
+          - generic [ref=e96]
+      - generic [ref=e99]:
+        - link "Sauce Labs Onesie" [ref=e101] [cursor=pointer]:
+          - /url: "#"
+          - img "Sauce Labs Onesie" [ref=e102]
+        - generic [ref=e103]:
+          - generic [ref=e104]
+          - generic [ref=e108]
+      - generic [ref=e111]:
+        - link "Test.allTheThings() T-Shirt (Red)" [ref=e113] [cursor=pointer]:
+          - /url: "#"
+          - img "Test.allTheThings() T-Shirt (Red)" [ref=e114]
+        - generic [ref=e115]:
+          - generic [ref=e116]
+          - generic [ref=e120]
+  - contentinfo [ref=e123]:
+    - list [ref=e124]:
+      - listitem [ref=e125]:
+        - link "Twitter" [ref=e126] [cursor=pointer]:
+          - /url: https://twitter.com/saucelabs
+      - listitem [ref=e127]:
+        - link "Facebook" [ref=e128] [cursor=pointer]:
+          - /url: https://www.facebook.com/saucelabs
+      - listitem [ref=e129]:
+        - link "LinkedIn" [ref=e130] [cursor=pointer]:
+          - /url: https://www.linkedin.com/company/sauce-labs/
+    - generic [ref=e131]: © 2026 Sauce Labs. All Rights Reserved. Terms of Service | Privacy Policy

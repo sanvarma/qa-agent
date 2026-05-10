@@ -19,6 +19,8 @@ import { pomAddSelectorTool } from '../tools/pom/addSelector.js';
 import { fixtureAddPageTool } from '../tools/fixture/addPage.js';
 import { astAddImportTool } from '../tools/ast/addImport.js';
 
+import { extractElementsTool } from '../tools/browser/extractElements.js';
+
 // MCP-backed tools (browse.*). Started lazily only when cfg.browse is set.
 import { startPlaywrightMcp, type PlaywrightMcpHandle } from '../mcp/playwrightServer.js';
 
@@ -60,6 +62,8 @@ export interface OrchestratorConfig {
     password?: string;
     maxSnapshotLines?: number;
   };
+  /** Optional user-defined patterns for routing tests to specific .spec.ts files. */
+  specFileNaming?: Array<{ pattern: string; spec: string }>;
 }
 
 export interface OrchestratorDeps {
@@ -78,6 +82,7 @@ export interface OrchestratorResult {
 function buildFixRegistry(extras: AnyTool[] = []): ToolRegistry {
   const reg = new ToolRegistry();
   reg.register(fsReadTool);
+  reg.register(extractElementsTool);
   reg.register(testEditCaseTool);
   reg.register(pomCreatePageTool);
   reg.register(pomUpdateSelectorTool);
@@ -239,6 +244,7 @@ async function runOrchestratorCore(
         agentLogger: logger,
         model: cfg.model,
         maxTokens: cfg.maxTokens,
+        specFileNaming: cfg.specFileNaming,
       });
       await twLog.persist();
       if (twResult.stopReason === 'max_tokens' || twResult.stopReason === 'max_steps') {
@@ -418,7 +424,7 @@ async function runOrchestratorCore(
     try {
       const fixResult = await runAgent(
         fixTask(failure, classification, state.fixHistory),
-        { maxSteps: 10, model: cfg.model, maxTokens: cfg.maxTokens, system: fixSystemPrompt(cfg.browse) },
+        { maxSteps: 15, model: cfg.model, maxTokens: cfg.maxTokens, system: fixSystemPrompt(cfg.browse) },
         { llm, tools: buildFixRegistry(browseTools), toolCtx, state: runState },
       );
       await logger.info('fix', 'phase.ok', state.fixAttemptsUsed, { steps: fixResult.steps, usage: fixResult.usage });

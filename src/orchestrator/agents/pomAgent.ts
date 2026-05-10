@@ -12,6 +12,7 @@ import { pomEditMethodTool } from '../../tools/pom/editMethod.js';
 import { fixtureAddPageTool } from '../../tools/fixture/addPage.js';
 import { extractElementsTool } from '../../tools/browser/extractElements.js';
 import { fsReadTool } from '../../tools/fs/read.js';
+import { frameworkGetGraphTool } from '../../tools/framework/getGraph.js';
 import type { TestCase } from '../testCase.js';
 import { renderTestCase } from '../testCase.js';
 import type { AgentLogger } from '../logger.js';
@@ -23,6 +24,7 @@ import type { AgentLogger } from '../logger.js';
 function buildPomRegistry(): ToolRegistry {
   const reg = new ToolRegistry();
   reg.register(fsReadTool);
+  reg.register(frameworkGetGraphTool);
   reg.register(extractElementsTool);
   reg.register(pomCreatePageTool);
   reg.register(pomAddSelectorTool);
@@ -84,7 +86,9 @@ page.extractElements(url, { setupFlow? }) — extracts all interactive elements 
   Call all pages in ONE batched step. Never call it twice for the same page.
 
 ## Other tools
-fs.read — read an existing POM file before editing its methods or checking its fields.
+fs.read — read an existing POM file when you need a method's BODY or a field's SELECTOR VALUE.
+  The graph already lists every field name and method signature — do NOT fs.read just to check
+  what fields or methods exist. Use the graph for existence checks; use fs.read for content.
 pom.createPage — create a new POM at src/pages/common/<ClassName>.ts (flat, NO subdirectories).
 pom.addSelector — add a missing field to an existing POM.
 pom.updateSelector — replace the selector string on an existing POM field.
@@ -92,9 +96,12 @@ pom.editMethod — add or replace a method on a POM.
 fixture.addPage — register a POM in src/fixtures/pages.fixture.ts.
 
 ## Rules
+GRAPH FIRST: Call framework.getGraph at step 1. It shows every POM currently on disk. Use it to identify what is missing before doing anything else.
 EXISTING POMS: The task prompt lists all already-registered POMs with their fixture names and file paths.
   Do NOT call page.extractElements for already-registered pages.
-  Use fs.read on the file if you need to inspect its fields before adding missing ones.
+  The graph already shows their field names and method signatures — compare against the test steps
+  to find what's missing, then call pom.addSelector / pom.editMethod directly.
+  Only fs.read when you need a method's body (before replacing it) or a field's selector value.
 EXTRACT ONCE: Call page.extractElements for missing pages only — all in ONE batched step.
   Go straight from extracted elements → pom.createPage. Do NOT re-extract.
 SELECTORS: Use bestSelector from extracted elements as field selectors.
@@ -109,6 +116,10 @@ METHODS: Any test step requiring 2+ sequential interactions on one page MUST bec
   ❌ fillShippingInfo(): fills fields AND clicks submit — test then double-clicks.
 ATOMIC PAIR: Every pom.createPage MUST have a fixture.addPage in the same batch — no exceptions.
 SCOPE: Do NOT create spec files. Do NOT call test.* tools. Stop when all POMs are ready.
+NO POST-EDIT VERIFICATION: pom.createPage, pom.addSelector, pom.updateSelector, pom.editMethod,
+  and fixture.addPage either succeed or throw. After a successful edit, do NOT fs.read the file
+  or call framework.getGraph again to confirm. The test runs in the next phase — that is the
+  verification. Stop as soon as the last edit succeeds.
 BATCH — this is strict:
   ALL pom.createPage + fixture.addPage calls MUST be in ONE single response — never spread across multiple turns.
   ALL pom.editMethod calls MUST be in ONE single response — never spread across multiple turns.
@@ -131,18 +142,22 @@ function buildPomTask(tc: TestCase, baseUrl: string, existingPages: string): str
     `  ${existingPages}`,
     '',
     'Steps:',
-    '  1. Identify all pages needed by the test steps.',
-    '  2. For pages NOT already registered above, call page.extractElements in ONE batched step.',
+    '  1. Call framework.getGraph — see every POM, field, and method currently on disk.',
+    '  2. Compare the graph against the test steps. Identify every page needed that is NOT in the graph.',
+    '  3. For pages NOT in the graph, call page.extractElements in ONE batched step.',
     '       page.extractElements(url) for public pages.',
     '       page.extractElements(url, { setupFlow }) for auth-gated pages:',
     '         setupFlow: "account" | "cart" | "checkout" | "payment"',
-    '  3. In ONE single response, call pom.createPage + fixture.addPage for ALL missing pages at once.',
+    '  4. In ONE single response, call pom.createPage + fixture.addPage for ALL missing pages at once.',
     '       Every page gets its own pom.createPage AND fixture.addPage — all in the same response.',
     '       Do NOT create pages one per response. One response = all pages.',
-    '  4. In ONE single response, call pom.editMethod for ALL methods across ALL pages.',
+    '  5. In ONE single response, call pom.editMethod for ALL methods across ALL pages.',
     '       Do NOT add methods one per response. One response = all methods.',
-    '  5. For existing POMs missing fields, use fs.read to inspect the file then pom.addSelector.',
-    '  6. Stop — do NOT write tests.',
+    '  6. For existing POMs missing fields (compare graph vs test steps), call pom.addSelector directly.',
+    '       fs.read is only needed if you must see a method body before pom.editMethod replaces it,',
+    '       or a field selector value to mirror in a similar new field.',
+    '  7. Stop after the last successful edit — do NOT re-read files or call getGraph to verify.',
+    '       Do NOT write tests — that is a separate phase.',
   ].join('\n');
 }
 

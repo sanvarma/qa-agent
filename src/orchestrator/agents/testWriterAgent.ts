@@ -100,12 +100,45 @@ const SPEC_KEYWORDS: Array<[RegExp, string]> = [
   [/profile|account|settings|preference/i, 'account'],
 ];
 
-function inferSpecFile(tc: TestCase, locale: string | null): string {
+/**
+ * Decide which .spec.ts file a new test goes into.
+ *
+ * Resolution order (first match wins):
+ *   1. Explicit `tc.specFile` on the test case JSON — always wins.
+ *   2. User-defined patterns from `qa-agent.config.json#specFileNaming` —
+ *      lets each app override or extend the defaults without touching code.
+ *   3. Built-in `SPEC_KEYWORDS` defaults below.
+ *   4. Fallback: 'general'.
+ *
+ * `userPatterns` entries are pre-validated by Zod (`pattern` is a regex string,
+ * `spec` is a bare filename). We compile the regex with the `i` flag at call
+ * time. A bad regex throws here — surfaces as a clear test-writer-phase error
+ * rather than silently mis-routing tests.
+ */
+export function inferSpecFile(
+  tc: TestCase,
+  locale: string | null,
+  userPatterns: Array<{ pattern: string; spec: string }> = [],
+): string {
   if (tc.specFile) return tc.specFile;
+
   let base = 'general';
-  for (const [pattern, name] of SPEC_KEYWORDS) {
-    if (pattern.test(tc.title)) { base = name; break; }
+
+  // 1. User-defined patterns (config) — checked first so they can override defaults.
+  for (const { pattern, spec } of userPatterns) {
+    if (new RegExp(pattern, 'i').test(tc.title)) {
+      base = spec;
+      break;
+    }
   }
+
+  // 2. Built-in defaults — only consulted if no user pattern matched.
+  if (base === 'general') {
+    for (const [pattern, name] of SPEC_KEYWORDS) {
+      if (pattern.test(tc.title)) { base = name; break; }
+    }
+  }
+
   if (locale) return `tests/locales/${locale}/${base}.spec.ts`;
   return `tests/generic/${base}.spec.ts`;
 }
@@ -127,16 +160,18 @@ export interface TestWriterAgentDeps {
   agentLogger: AgentLogger;
   model: string;
   maxTokens: number;
+  /** Optional user-defined spec-file naming patterns from qa-agent.config.json. */
+  specFileNaming?: Array<{ pattern: string; spec: string }>;
 }
 
 export async function runTestWriterAgent(
   tc: TestCase,
   deps: TestWriterAgentDeps,
 ): Promise<AgentResult> {
-  const { llm, toolCtx, conversationLog, agentLogger, model, maxTokens } = deps;
+  const { llm, toolCtx, conversationLog, agentLogger, model, maxTokens, specFileNaming } = deps;
 
   const locale = resolveLocale(tc.localeScope ?? 'generic');
-  const specFile = inferSpecFile(tc, locale);
+  const specFile = inferSpecFile(tc, locale, specFileNaming);
 
   await agentLogger.info('testwriter', 'phase.enter', 0);
 

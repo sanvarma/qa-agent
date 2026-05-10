@@ -6,7 +6,8 @@ interface BrowseCreds { email?: string; password?: string; baseUrl?: string; }
 
 function credentialsHint(browse?: BrowseCreds): string {
   if (!browse?.email || !browse?.password) return '';
-  return `\n\nApp credentials (use these if you need to log in while browsing):\n  Email: ${browse.email}\n  Password: ${browse.password}`;
+  const urlLine = browse.baseUrl ? `\n  Base URL: ${browse.baseUrl}` : '';
+  return `\n\nApp credentials (use these if you need to log in while browsing):${urlLine}\n  Email: ${browse.email}\n  Password: ${browse.password}`;
 }
 
 function buildFixSystem(browse?: BrowseCreds): string {
@@ -16,14 +17,15 @@ A test you wrote (or an existing one) just failed. A rule-based classifier has i
 
 Available tools:
   - fs.read: read any file to inspect current state
+  - page.extractElements: navigate to a page and get real element selectors. Handles auth-gated pages via setupFlow.
   - test.editCase: replace the body of a test
   - pom.updateSelector: swap a selector string on a page object field
   - pom.editMethod: replace the body of a flow method on a page object
   - ast.addImport: add an import if the fix requires a new symbol
 
 The following tools may also be available depending on configuration:
-  - browse.navigate: open a URL in a live browser (use to find the correct selector)
-  - browse.snapshot: get the accessibility tree of the current page (shows real selectors that work)
+  - browse.navigate: open a URL in a live browser
+  - browse.snapshot: get the accessibility tree of the current page
   - browse.click / browse.type / browse.hover: drive the live page to reach the failing state
 
 ## Framework structure
@@ -60,16 +62,29 @@ When fixing a selector or method:
     that uniquely identifies the correct element. No browsing needed — the answer is in the error output.
     Example: error shows element has data-testid="submit-btn" → use [data-testid="submit-btn"].
   - When action == 'update_pom' and the error is "no element found" (0 matches, or locator timeout):
-    First check if the failing page requires authentication or specific app state.
-    AUTH-GATED / STATEFUL pages — do NOT browse to these; you cannot authenticate or populate state.
-      Instead apply a structural fix directly:
-        • Navigation links (name ends in Link/Button, selector starts with 'a'): replace with a[href*='<keyword>'].
-          Derive the keyword from the field name — e.g. dashboardLink→'dashboard', profileButton→'profile'.
-        • Form submit buttons: replace with button[type='submit'] or input[type='submit'].
-        • If the field type is neither of the above, fs.read the POM and apply the most specific
-          structural selector you can derive from the field name and context.
-    PUBLIC pages (pages reachable without login) — browse.navigate then browse.snapshot to find the correct selector.
-    Do not guess data-* attribute values — use href-patterns or type-based selectors for auth-gated pages.
+    Use page.extractElements to discover the correct selector from the live page.
+    PUBLIC pages (no login required): page.extractElements(url) — navigate directly.
+    AUTH-GATED / STATEFUL pages (cart, checkout, account, order confirmation):
+      page.extractElements(url, { setupFlow: '<flow>', filter: '<keyword>' }) where flow is one of:
+        'account'  — login only
+        'cart'     — login + add product + go to cart
+        'checkout' — login + add product + cart + proceed to checkout
+        'payment'  — login + add product + cart + checkout + place order
+      Credentials are loaded automatically — do not pass them manually.
+      Always pass filter: set it to the meaningful part of the failing locator string
+      (e.g. failing locator '[data-test="checkout-BROKEN"]' → filter: 'checkout').
+      filter is case-insensitive and matches against element text, selectors, and attributes —
+      it returns only elements that match, keeping the response small.
+      Pick the flow that matches the failing page. The tool returns real element selectors
+      from the live authenticated page — use bestSelector from the matching element to fix the POM field.
+      Call page.extractElements ONCE only. Do not retry it or fall back to browse.* tools after calling it.
+  - CRITICAL — if extractElements returns an element whose selectors match the EXISTING POM selector
+    (or are functionally equivalent — e.g. existing '[data-test="checkout"]' vs returned 'button[data-test="checkout"]'),
+    then the POM selector is NOT the bug. The element exists at that selector on the live page.
+    The test never REACHED that page. The bug is upstream — in the test step or POM method called BEFORE
+    the failing line. Read the failing test, identify the previous step (the POM method called on the
+    line just before the failing one), fs.read that POM, inspect its method body, and use pom.editMethod
+    to fix it. Do NOT update the selector that was already correct — that would be a no-op fix.
   - Make the smallest correct change. Do not refactor unrelated code.
 
 Stop as soon as the fix is applied. DO NOT re-run tests — execution happens outside this phase.${credentialsHint(browse)}`;
@@ -132,6 +147,8 @@ export function fixTask(
     '  - If the file is under src/pages/common/, decide: does the fix apply to all locales or just one?',
     '    Apply to common/ only if it is correct for all locales.',
     '    Otherwise create or update src/pages/locales/<locale>/<Page>.ts with a targeted override.',
+    '  - When calling page.extractElements, always include filter: set to the key word from the failing locator',
+    '    (e.g. locator [data-test="checkout-BROKEN"] → filter: "checkout"). This keeps the result small.',
     '',
     'Error message:',
     failure.message,

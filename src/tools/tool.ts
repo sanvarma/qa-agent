@@ -17,6 +17,8 @@ export interface ToolContext {
   };
   // Selector priority order from qa-agent.config.json browse.selectorPreference
   selectorPreference?: string[];
+  // Config-driven setup flows from qa-agent.config.json setupFlows
+  setupFlows?: Record<string, Array<{ action: string; selector?: string; pom?: string; field?: string; url?: string }>>;
 }
 
 export interface Tool<I, O> {

@@ -54,8 +54,17 @@ const FIXTURE_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
-async function runWalker(page: Page): Promise<ExtractedElement[]> {
-  return page.evaluate(DOM_WALKER_SCRIPT) as Promise<ExtractedElement[]>;
+// Mirror the production walkDOM invocation pattern: page.evaluate(string, arg)
+// does NOT pass the arg to a string-form function — it just evaluates the string
+// as an expression and returns the function object (which can't be JSON-serialized
+// → returns undefined). Production wraps DOM_WALKER_SCRIPT as an IIFE with the
+// priority array embedded inline. Tests must do the same to actually invoke the
+// walker. Keep the priority list in sync with DEFAULT_PRIORITY in extractElements.ts.
+const DEFAULT_PRIORITY = ['data-qa', 'data-testid', 'data-test', 'id', 'name', 'type', 'href', 'placeholder', 'aria-label'];
+
+async function runWalker(page: Page, priority: string[] = DEFAULT_PRIORITY): Promise<ExtractedElement[]> {
+  const iife = `(${DOM_WALKER_SCRIPT.trim()})(${JSON.stringify(priority)})`;
+  return page.evaluate(iife) as Promise<ExtractedElement[]>;
 }
 
 describe('extractElements — DOM walker', () => {

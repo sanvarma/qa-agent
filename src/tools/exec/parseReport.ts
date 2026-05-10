@@ -80,7 +80,13 @@ function walkSpecs(
       for (const result of test.results ?? []) {
         const status = result.status;
         if (status === 'failed' || status === 'timedOut' || status === 'interrupted') {
-          const err = result.error ?? result.errors?.[0];
+          // For timedOut tests, result.error is just "Test timeout exceeded" with no locator detail.
+          // result.errors (plural) often contains a second entry with the full locator call log.
+          // Prefer the most informative error — one that mentions a locator or selector.
+          const allErrors = [...(result.errors ?? []), result.error].filter(Boolean);
+          const err = allErrors.find(
+            (e) => /locator|waiting for|selector/i.test(e?.message ?? ''),
+          ) ?? result.error ?? result.errors?.[0];
           const message = (err?.message ?? '').trim();
           const stack = err?.stack ?? '';
           out.push({
